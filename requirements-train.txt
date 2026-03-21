@@ -1,7 +1,3 @@
-# Optional: train the heteronym Transformer (LibriG2P via Hugging Face hub files).
-torch>=2.0
-huggingface_hub>=0.20
-wandb>=0.16
-# Optional: scripts/build_heteronym_espeak_dataset.py (needs system libespeak-ng).
-espeak-phonemizer>=1.3
-datasets
+version https://git-lfs.github.com/spec/v1
+oid sha256:69c4a4b6b7a0fc689b3af161c16d9f73207965393dafec61b265daf53fbb8b08
+size 301
