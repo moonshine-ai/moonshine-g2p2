@@ -17,6 +17,8 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+import random
+from collections import Counter
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -185,11 +187,18 @@ class CharVocab:
         return self
 
     @classmethod
-    def from_records(cls, records: list[HomographRecord]) -> CharVocab:
+    def from_records(
+        cls,
+        records: list[HomographRecord],
+        *,
+        extra_chars: str | None = None,
+    ) -> CharVocab:
         seen: set[str] = set()
         for r in records:
             for ch in r.char_text:
                 seen.add(ch)
+        if extra_chars:
+            seen.update(extra_chars)
         return cls(sorted(seen))
 
     def to_jsonable(self) -> dict[str, int]:
@@ -201,6 +210,175 @@ class CharVocab:
 
     def __len__(self) -> int:
         return len(self.stoi)
+
+
+def _group_key_for_record(r: HomographRecord, group_key: str) -> str:
+    return r.homograph.lower() if group_key == "lower" else r.homograph
+
+
+def _allowed_noise_inserts(char_vocab: CharVocab) -> set[str]:
+    return {c for c in ".,;:'\"-" if c in char_vocab.stoi}
+
+
+def _safe_surface_noise(
+    text: str,
+    span_s: int,
+    span_e: int,
+    rng: random.Random,
+    prob: float,
+    allowed_punct: set[str],
+) -> tuple[str, int, int]:
+    """
+    Light edits strictly outside ``[span_s, span_e)``: duplicate/collapse spaces,
+    or insert punctuation after a space at a safe boundary.
+    """
+    if prob <= 0 or rng.random() > prob:
+        return text, span_s, span_e
+    ch = list(text)
+    s, e = span_s, span_e
+    n_ops = rng.randint(1, 2)
+    for _ in range(n_ops):
+        if not ch:
+            break
+        kind = rng.choice(["dup_space", "collapse_space", "punct"])
+        if kind == "dup_space":
+            candidates = [
+                i
+                for i, c in enumerate(ch)
+                if c == " " and (i < s or i >= e) and (i + 1 <= s or i + 1 >= e)
+            ]
+            if not candidates:
+                continue
+            i = rng.choice(candidates)
+            k = i + 1
+            ch.insert(k, " ")
+            if k <= s:
+                s += 1
+                e += 1
+        elif kind == "collapse_space":
+            doubles = [
+                i
+                for i in range(len(ch) - 1)
+                if ch[i] == " " and ch[i + 1] == " " and (i + 1 < s or i >= e)
+            ]
+            if not doubles:
+                continue
+            i = rng.choice(doubles)
+            del ch[i]
+            if i < s:
+                s -= 1
+                e -= 1
+        elif kind == "punct" and allowed_punct:
+            slots = [
+                i
+                for i, c in enumerate(ch)
+                if c == " "
+                and (i < s or i >= e)
+                and (i + 1 <= s or i + 1 >= e)
+            ]
+            if not slots:
+                continue
+            i = rng.choice(slots)
+            p = rng.choice(list(allowed_punct))
+            k = i + 1
+            ch.insert(k, p)
+            if k <= s:
+                s += 1
+                e += 1
+    s = min(max(0, s), len(ch))
+    e = min(max(s, e), len(ch))
+    return "".join(ch), s, e
+
+
+def _random_context_window(
+    text: str,
+    span_s: int,
+    span_e: int,
+    max_seq_len: int,
+    rng: random.Random,
+    *,
+    max_left_pad: int = 48,
+) -> tuple[str, int, int] | None:
+    """Random crop if ``len(text) > max_seq_len``; optional left-padding if shorter."""
+    L = len(text)
+    s, e = span_s, span_e
+    if e > L or s < 0 or s >= e:
+        return None
+    if L > max_seq_len:
+        lo = max(0, e - max_seq_len)
+        hi = min(s, L - max_seq_len)
+        if lo > hi:
+            return None
+        w0 = rng.randint(lo, hi)
+        text = text[w0 : w0 + max_seq_len]
+        s -= w0
+        e -= w0
+        L = len(text)
+    if L < max_seq_len:
+        budget = max_seq_len - L
+        left = rng.randint(0, min(budget, max_left_pad)) if budget > 0 else 0
+        if left:
+            text = " " * left + text
+            s += left
+            e += left
+    return text, s, e
+
+
+def apply_train_augmentation(
+    r: HomographRecord,
+    *,
+    char_vocab: CharVocab,
+    max_seq_len: int,
+    rng: random.Random,
+    surface_noise_prob: float,
+) -> tuple[str, int, int] | None:
+    """
+    Return augmented ``(char_text, homograph_char_start, homograph_char_end)``,
+    or ``None`` if the span cannot be placed in a ``max_seq_len`` window.
+    """
+    text = r.char_text
+    s = min(max(0, r.homograph_char_start), len(text))
+    e = min(max(s, r.homograph_char_end), len(text))
+    if s >= e:
+        return None
+    punct = _allowed_noise_inserts(char_vocab)
+    text, s, e = _safe_surface_noise(text, s, e, rng, surface_noise_prob, punct)
+    out = _random_context_window(text, s, e, max_seq_len, rng)
+    return out
+
+
+def _training_index_order(
+    records: list[HomographRecord],
+    *,
+    label_maps: dict[str, dict[str, int]],
+    group_key: str,
+    shuffle: bool,
+    balance_training: bool,
+    rng: random.Random,
+) -> list[int]:
+    if not shuffle:
+        return list(range(len(records)))
+    valid_ix: list[int] = []
+    for i, r in enumerate(records):
+        g = _group_key_for_record(r, group_key)
+        if g not in label_maps:
+            continue
+        if r.homograph_wordid not in label_maps[g]:
+            continue
+        valid_ix.append(i)
+    if balance_training and valid_ix:
+        keys = [
+            (_group_key_for_record(records[i], group_key), records[i].homograph_wordid)
+            for i in valid_ix
+        ]
+        counts = Counter(keys)
+        weights = [1.0 / counts[k] for k in keys]
+        return rng.choices(valid_ix, weights=weights, k=len(records))
+    if balance_training and not valid_ix:
+        logger.warning("balance_training: no valid rows, using uniform shuffle")
+    idx = list(range(len(records)))
+    rng.shuffle(idx)
+    return idx
 
 
 def iter_encoded_batches(
@@ -215,13 +393,21 @@ def iter_encoded_batches(
     batch_size: int,
     shuffle: bool,
     seed: int,
+    train_augment: bool = False,
+    balance_training: bool = False,
+    surface_noise_prob: float = 0.3,
 ) -> Iterator[dict[str, Any]]:
-    import random
-
-    idx = list(range(len(records)))
-    if shuffle:
-        rng = random.Random(seed)
-        rng.shuffle(idx)
+    rng = random.Random(seed)
+    train_augment = bool(train_augment and shuffle)
+    balance_training = bool(balance_training and shuffle)
+    idx = _training_index_order(
+        records,
+        label_maps=label_maps,
+        group_key=group_key,
+        shuffle=shuffle,
+        balance_training=balance_training,
+        rng=rng,
+    )
 
     batch_ids: list[list[int]] = []
     batch_span: list[list[float]] = []
@@ -264,15 +450,28 @@ def iter_encoded_batches(
 
     for i in idx:
         r = records[i]
-        gkey = r.homograph.lower() if group_key == "lower" else r.homograph
+        gkey = _group_key_for_record(r, group_key)
         lm = label_maps[gkey]
         if r.homograph_wordid not in lm:
-            logger.warning("skip row: unknown wordid %s for %s", r.homograph_wordid, gkey)
+            # logger.warning("skip row: unknown wordid %s for %s", r.homograph_wordid, gkey)
             continue
         y = lm[r.homograph_wordid]
-        ids = char_vocab.encode(r.char_text)
+        if train_augment:
+            aug = apply_train_augmentation(
+                r,
+                char_vocab=char_vocab,
+                max_seq_len=max_seq_len,
+                rng=rng,
+                surface_noise_prob=surface_noise_prob,
+            )
+            if aug is None:
+                # logger.warning("skip row: homograph span does not fit max_seq_len for %s", gkey)
+                continue
+            char_text, s, e = aug
+        else:
+            char_text, s, e = r.char_text, r.homograph_char_start, r.homograph_char_end
+        ids = char_vocab.encode(char_text)
         span = [0.0] * len(ids)
-        s, e = r.homograph_char_start, r.homograph_char_end
         e = min(e, len(ids))
         s = min(max(0, s), len(ids))
         for j in range(s, e):
@@ -281,7 +480,7 @@ def iter_encoded_batches(
             ids = ids[:max_seq_len]
             span = span[:max_seq_len]
         if sum(span) < 1.0:
-            logger.warning("skip row: homograph span outside truncated window for %s", gkey)
+            # logger.warning("skip row: homograph span outside truncated window for %s", gkey)
             continue
         cands = ordered_candidates[gkey]
         cm = [True] * len(cands) + [False] * (max_candidates - len(cands))

@@ -5,9 +5,19 @@ Train the small heteronym Transformer on LibriG2P homograph JSON.
 Example::
 
     python train_heteronym.py --out ./heteronym_runs/run1 --epochs 3
+    python train_heteronym.py --out ./heteronym_runs/run1 --epochs 10 --resume
+
+Each epoch writes ``checkpoint.pt`` under ``--out`` (model, optimizer, progress).
+With ``--resume``, training continues from ``checkpoint.pt`` under ``--out``;
+``--epochs`` is the total number of epochs to run (including those already finished).
 
 Data files are fetched from the Hugging Face dataset repo via huggingface_hub
 (see flexthink/librig2p-nostress-space ``dataset/homograph_*.json``).
+
+Training defaults: random context windows / left-padding, safe surface noise
+outside the homograph span, and inverse-frequency balancing over
+``(homograph, homograph_wordid)``. Disable with ``--no-train-augment`` /
+``--no-balance-train``.
 """
 
 from __future__ import annotations
@@ -27,11 +37,95 @@ from heteronym.librig2p import (
     download_librig2p_homograph_split,
     iter_encoded_batches,
     load_homograph_json,
+    load_training_artifacts,
     save_training_artifacts,
 )
 from heteronym.model import TinyHeteronymTransformer, masked_candidate_loss
 
 logger = logging.getLogger(__name__)
+
+CHECKPOINT_NAME = "checkpoint.pt"
+
+
+# Saved in checkpoint.pt so resume can verify CLI matches the original run.
+_CKPT_ARG_KEYS = (
+    "max_seq_len",
+    "max_candidates",
+    "group_key",
+    "d_model",
+    "n_heads",
+    "n_layers",
+    "ffn_dim",
+    "dropout",
+    "seed",
+    "device",
+    "train_augment",
+    "balance_training",
+    "surface_noise_prob",
+    "train_json",
+    "valid_json",
+)
+
+
+def _args_snapshot(args: argparse.Namespace) -> dict[str, object]:
+    d = vars(args).copy()
+    d["train_augment"] = not d.get("no_train_augment", False)
+    d["balance_training"] = not d.get("no_balance_train", False)
+    out: dict[str, object] = {}
+    for k in _CKPT_ARG_KEYS:
+        v = d.get(k)
+        out[k] = str(v) if isinstance(v, Path) else v
+    return out
+
+
+def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace) -> None:
+    if not isinstance(saved, dict):
+        raise SystemExit("Checkpoint is missing args_snapshot (cannot --resume).")
+    cur = _args_snapshot(args)
+    mismatches = [k for k in _CKPT_ARG_KEYS if saved.get(k) != cur.get(k)]
+    if mismatches:
+        raise SystemExit(
+            "Refusing to resume: the following flags differ from the checkpoint "
+            f"({', '.join(mismatches)}). Use the same hyperparameters and data paths "
+            "as the original run, or train in a fresh --out directory."
+        )
+
+
+def _save_checkpoint(
+    out: Path,
+    *,
+    model: TinyHeteronymTransformer,
+    optimizer: torch.optim.Optimizer,
+    completed_epochs: int,
+    best_acc: float,
+    args: argparse.Namespace,
+) -> None:
+    payload = {
+        "model": model.state_dict(),
+        "optimizer": optimizer.state_dict(),
+        "completed_epochs": completed_epochs,
+        "best_acc": best_acc,
+        "args_snapshot": _args_snapshot(args),
+    }
+    torch.save(payload, out / CHECKPOINT_NAME)
+
+
+def _try_load_resume(
+    out: Path,
+    *,
+    model: TinyHeteronymTransformer,
+    optimizer: AdamW,
+    device: torch.device,
+    args: argparse.Namespace,
+) -> tuple[int, float]:
+    ckpt_path = out / CHECKPOINT_NAME
+    if not ckpt_path.is_file():
+        raise SystemExit(f"Cannot --resume: missing {ckpt_path}")
+    ckpt = torch.load(ckpt_path, map_location=device, weights_only=False)
+    _check_resume_args(ckpt.get("args_snapshot"), args)
+    model.load_state_dict(ckpt["model"])
+    optimizer.load_state_dict(ckpt["optimizer"])
+    return int(ckpt["completed_epochs"]), float(ckpt["best_acc"])
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
@@ -39,15 +133,15 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--out", type=Path, default=Path("heteronym_out"), help="output directory")
     p.add_argument("--epochs", type=int, default=5)
     p.add_argument("--batch-size", type=int, default=32)
-    p.add_argument("--lr", type=float, default=3e-4)
+    p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--max-seq-len", type=int, default=384)
     p.add_argument("--max-candidates", type=int, default=4)
-    p.add_argument("--d-model", type=int, default=256)
+    p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--n-heads", type=int, default=4)
-    p.add_argument("--n-layers", type=int, default=4)
-    p.add_argument("--ffn-dim", type=int, default=512)
-    p.add_argument("--dropout", type=float, default=0.1)
+    p.add_argument("--n-layers", type=int, default=2)
+    p.add_argument("--ffn-dim", type=int, default=256)
+    p.add_argument("--dropout", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="cpu")
     p.add_argument(
@@ -58,6 +152,27 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     )
     p.add_argument("--valid-json", type=Path, default=None)
     p.add_argument("--group-key", choices=("lower", "exact"), default="lower")
+    p.add_argument(
+        "--no-train-augment",
+        action="store_true",
+        help="disable random context windows, left-padding, and safe surface noise",
+    )
+    p.add_argument(
+        "--no-balance-train",
+        action="store_true",
+        help="disable inverse-frequency oversampling of (homograph, wordid) pairs",
+    )
+    p.add_argument(
+        "--surface-noise-prob",
+        type=float,
+        default=0.3,
+        help="per-example chance to apply 1–2 safe edits outside the homograph span",
+    )
+    p.add_argument(
+        "--resume",
+        action="store_true",
+        help=f"continue from {CHECKPOINT_NAME} under --out (full checkpoint required)",
+    )
     return p.parse_args(argv)
 
 
@@ -109,7 +224,6 @@ def _evaluate(
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
-    torch.manual_seed(args.seed)
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
@@ -123,12 +237,25 @@ def main(argv: list[str] | None = None) -> None:
 
     train_recs = load_homograph_json(train_path)
     valid_recs = load_homograph_json(valid_path)
-    ordered, label_maps = build_homograph_candidate_tables(
-        train_recs,
-        max_candidates=args.max_candidates,
-        group_key=args.group_key,
-    )
-    char_vocab = CharVocab.from_records(train_recs)
+
+    if args.resume:
+        char_vocab, ordered, label_maps, mc, gk = load_training_artifacts(out)
+        if mc != args.max_candidates or gk != args.group_key:
+            raise SystemExit(
+                "Refusing to resume: --max-candidates / --group-key must match "
+                f"homograph_index.json in {out} (got max_candidates={args.max_candidates}, "
+                f"group_key={args.group_key!r}; saved max_candidates={mc}, group_key={gk!r})."
+            )
+    else:
+        ordered, label_maps = build_homograph_candidate_tables(
+            train_recs,
+            max_candidates=args.max_candidates,
+            group_key=args.group_key,
+        )
+        extra = ".,;:'\"-" if not args.no_train_augment else None
+        char_vocab = CharVocab.from_records(train_recs, extra_chars=extra)
+        with (out / "train_config.json").open("w", encoding="utf-8") as f:
+            json.dump(vars(args), f, default=str, indent=2)
 
     # Dev set: only rows whose homograph appears in train index
     def _filter_dev(recs):
@@ -162,8 +289,27 @@ def main(argv: list[str] | None = None) -> None:
 
     opt = AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
 
-    best_acc = 0.0
-    for epoch in range(args.epochs):
+    if args.resume:
+        start_epoch, best_acc = _try_load_resume(
+            out, model=model, optimizer=opt, device=device, args=args
+        )
+    else:
+        start_epoch, best_acc = 0, 0.0
+
+    if start_epoch >= args.epochs:
+        logger.info(
+            "Nothing to do: checkpoint already finished %d epochs (--epochs %d).",
+            start_epoch,
+            args.epochs,
+        )
+        return
+
+    torch.manual_seed(args.seed)
+
+    train_augment = not args.no_train_augment
+    balance_training = not args.no_balance_train
+
+    for epoch in range(start_epoch, args.epochs):
         model.train()
         losses = []
         for batch in iter_encoded_batches(
@@ -177,6 +323,9 @@ def main(argv: list[str] | None = None) -> None:
             batch_size=args.batch_size,
             shuffle=True,
             seed=args.seed + epoch,
+            train_augment=train_augment,
+            balance_training=balance_training,
+            surface_noise_prob=args.surface_noise_prob,
         ):
             opt.zero_grad(set_to_none=True)
             logits = model(
@@ -211,7 +360,7 @@ def main(argv: list[str] | None = None) -> None:
             sum(losses) / max(len(losses), 1),
             acc,
         )
-        if acc >= best_acc:
+        if acc <= best_acc:
             best_acc = acc
             torch.save(model.state_dict(), out / "model.pt")
             save_training_artifacts(
@@ -224,6 +373,15 @@ def main(argv: list[str] | None = None) -> None:
             )
             with (out / "train_config.json").open("w", encoding="utf-8") as f:
                 json.dump(vars(args), f, default=str, indent=2)
+
+        _save_checkpoint(
+            out,
+            model=model,
+            optimizer=opt,
+            completed_epochs=epoch + 1,
+            best_acc=best_acc,
+            args=args,
+        )
 
     logger.info("done. best valid acc %.4f -> %s", best_acc, out / "model.pt")
 
