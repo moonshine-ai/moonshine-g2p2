@@ -2,3 +2,6 @@
 torch>=2.0
 huggingface_hub>=0.20
 wandb>=0.16
+# Optional: scripts/build_heteronym_espeak_dataset.py (needs system libespeak-ng).
+espeak-phonemizer>=1.3
+datasets

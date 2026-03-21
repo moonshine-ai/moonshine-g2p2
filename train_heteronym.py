@@ -318,7 +318,7 @@ def main(argv: list[str] | None = None) -> None:
             out, model=model, optimizer=opt, device=device, args=args
         )
     else:
-        start_epoch, best_acc = 0, 0.0
+        start_epoch, best_acc = 0, 1000.0
 
     if start_epoch >= args.epochs:
         logger.info(

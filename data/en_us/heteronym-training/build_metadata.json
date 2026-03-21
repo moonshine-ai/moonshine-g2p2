@@ -1,0 +1,20 @@
+{
+  "out_json": "data/en_us/heteronym-training/homograph_train.json",
+  "dict_path": "/home/petewarden/moonshine-g2p2/data/en_us/dict.tsv",
+  "voice": "en-us",
+  "max_candidates": 4,
+  "ignore_homograph_keys": [
+    "a",
+    "and",
+    "of",
+    "or",
+    "the",
+    "to"
+  ],
+  "stats": {
+    "sentences_seen": 100000,
+    "sentences_with_any_ambiguous_token": 92820,
+    "records_emitted": 200605,
+    "sentences_espeak_failed": 0
+  }
+}
