@@ -1,0 +1,1260 @@
+{
+  "max_candidates": 4,
+  "group_key": "lower",
+  "ordered_candidates": {
+    "implement": [
+      "implement_nou",
+      "implement_vrb"
+    ],
+    "addict": [
+      "addict_nou"
+    ],
+    "moderate": [
+      "moderate_adj-nou",
+      "moderate_vrb"
+    ],
+    "articulate": [
+      "articulate_adj",
+      "articulate_vrb"
+    ],
+    "compress": [
+      "compress",
+      "compress_nou"
+    ],
+    "extract": [
+      "extract_nou",
+      "extract_vrb"
+    ],
+    "supplement": [
+      "supplement_nou",
+      "supplement_vrb"
+    ],
+    "intimate": [
+      "intimate_adj"
+    ],
+    "transplant": [
+      "transplant_nou",
+      "transplant_vrb"
+    ],
+    "postulate": [
+      "postulate_nou",
+      "postulate_vrb"
+    ],
+    "import": [
+      "import_nou",
+      "import_vrb"
+    ],
+    "recount": [
+      "recount_nou",
+      "recount_vrb"
+    ],
+    "diagnoses": [
+      "diagnoses_nou",
+      "diagnoses_vrb"
+    ],
+    "abstract": [
+      "abstract_adj-nou",
+      "abstract_vrb"
+    ],
+    "rodeo": [
+      "rodeo",
+      "rodeo_geo"
+    ],
+    "diffuse": [
+      "diffuse_adj",
+      "diffuse_vrb"
+    ],
+    "perfect": [
+      "perfect_adj",
+      "perfect_vrb"
+    ],
+    "increase": [
+      "increase_nou",
+      "increase_vrb"
+    ],
+    "discount": [
+      "discount_nou",
+      "discount_vrb"
+    ],
+    "jesus": [
+      "jesus",
+      "jesus_es"
+    ],
+    "conjugate": [
+      "conjugate_adj-nou",
+      "conjugate_vrb"
+    ],
+    "pasty": [
+      "pasty_adj",
+      "pasty_nou"
+    ],
+    "document": [
+      "document_nou",
+      "document_vrb"
+    ],
+    "bow": [
+      "bow_nou-knot",
+      "bow_nou-ship"
+    ],
+    "record": [
+      "record_nou",
+      "record_vrb"
+    ],
+    "suspect": [
+      "suspect_adj-nou",
+      "suspect_vrb"
+    ],
+    "desert": [
+      "desert_nou"
+    ],
+    "defect": [
+      "defect_nou",
+      "defect_vrb"
+    ],
+    "insert": [
+      "insert_nou",
+      "insert_vrb"
+    ],
+    "incline": [
+      "incline_nou",
+      "incline_vrb"
+    ],
+    "confines": [
+      "confines_nou",
+      "confines_vrb"
+    ],
+    "expatriate": [
+      "expatriate_nou",
+      "expatriate_vrb"
+    ],
+    "decrease": [
+      "decrease_nou",
+      "decrease_vrb"
+    ],
+    "incense": [
+      "incense_nou"
+    ],
+    "alternate": [
+      "alternate_adj-nou",
+      "alternate_vrb"
+    ],
+    "frequent": [
+      "frequent_adj",
+      "frequent_vrb"
+    ],
+    "animate": [
+      "animate_adj-nou",
+      "animate_vrb"
+    ],
+    "progress": [
+      "progress_nou",
+      "progress_vrb"
+    ],
+    "mouth": [
+      "mouth_nou"
+    ],
+    "exploit": [
+      "exploit_nou",
+      "exploit_vrb"
+    ],
+    "moped": [
+      "moped_nou"
+    ],
+    "deliberate": [
+      "deliberate_adj",
+      "deliberate_vrb"
+    ],
+    "refund": [
+      "refund_nou",
+      "refund_vrb"
+    ],
+    "produce": [
+      "produce_nou",
+      "produce_vrb"
+    ],
+    "content": [
+      "content_nou"
+    ],
+    "uses": [
+      "uses_nou",
+      "uses_vrb"
+    ],
+    "mate": [
+      "mate",
+      "mate_nou"
+    ],
+    "entrance": [
+      "entrance_nou"
+    ],
+    "estimate": [
+      "estimate_nou",
+      "estimate_vrb"
+    ],
+    "attribute": [
+      "attribute_nou",
+      "attribute_vrb"
+    ],
+    "converse": [
+      "converse_adj-nou",
+      "converse_vrb"
+    ],
+    "upset": [
+      "upset_nou",
+      "upset_vrb"
+    ],
+    "precipitate": [
+      "precipitate_adj-nou",
+      "precipitate_vrb"
+    ],
+    "use": [
+      "use_nou",
+      "use_vrb"
+    ],
+    "laminate": [
+      "laminate_nou",
+      "laminate_vrb"
+    ],
+    "ornament": [
+      "ornament_nou",
+      "ornament_vrb"
+    ],
+    "resume": [
+      "resume_nou",
+      "resume_vrb"
+    ],
+    "invite": [
+      "invite_nou",
+      "invite_vrb"
+    ],
+    "present": [
+      "present_adj-nou",
+      "present_vrb"
+    ],
+    "protest": [
+      "protest_nou",
+      "protest_vrb"
+    ],
+    "sake": [
+      "sake",
+      "sake_jp"
+    ],
+    "wind": [
+      "wind_nou",
+      "wind_vrb"
+    ],
+    "house": [
+      "house_nou",
+      "house_vrb"
+    ],
+    "discard": [
+      "discard_nou",
+      "discard_vrb"
+    ],
+    "duplicate": [
+      "duplicate_adj-nou",
+      "duplicate_vrb"
+    ],
+    "retard": [
+      "retard_nou",
+      "retard_vrb"
+    ],
+    "expose": [
+      "expose_nou",
+      "expose_vrb"
+    ],
+    "transform": [
+      "transform",
+      "transform_nou"
+    ],
+    "minute": [
+      "minute",
+      "minute_adj"
+    ],
+    "perfume": [
+      "perfume_nou",
+      "perfume_vrb"
+    ],
+    "conglomerate": [
+      "conglomerate_adj-nou"
+    ],
+    "predicate": [
+      "predicate_nou"
+    ],
+    "contrast": [
+      "contrast_nou",
+      "contrast_vrb"
+    ],
+    "compact": [
+      "compact_adj-nou"
+    ],
+    "rerelease": [
+      "rerelease",
+      "rerelease_vrb"
+    ],
+    "lives": [
+      "lives_nou",
+      "lives_vrb"
+    ],
+    "abuses": [
+      "abuses_nou",
+      "abuses_vrb"
+    ],
+    "advocate": [
+      "advocate_nou",
+      "advocate_vrb"
+    ],
+    "export": [
+      "export_nou",
+      "export_vrb"
+    ],
+    "impact": [
+      "impact_nou",
+      "impact_vrb"
+    ],
+    "isolate": [
+      "isolate",
+      "isolate_nou"
+    ],
+    "rebel": [
+      "rebel_nou",
+      "rebel_vrb"
+    ],
+    "coordinate": [
+      "coordinate_adj-nou",
+      "coordinate_vrb"
+    ],
+    "pigment": [
+      "pigment_nou"
+    ],
+    "conduct": [
+      "conduct_nou",
+      "conduct_vrb"
+    ],
+    "bass": [
+      "bass",
+      "bass_corp"
+    ],
+    "permit": [
+      "permit_nou",
+      "permit_vrb"
+    ],
+    "winds": [
+      "winds_nou",
+      "winds_vrb"
+    ],
+    "construct": [
+      "construct_nou",
+      "construct_vrb"
+    ],
+    "celtic": [
+      "celtic",
+      "celtic_adj-nou-sports"
+    ],
+    "approximate": [
+      "approximate_adj-nou",
+      "approximate_vrb"
+    ],
+    "polish": [
+      "polish",
+      "polish_geo"
+    ],
+    "elaborate": [
+      "elaborate_adj"
+    ],
+    "wound": [
+      "wound_nou-vrb",
+      "wound_vrb"
+    ],
+    "separate": [
+      "separate_adj",
+      "separate_vrb"
+    ],
+    "dove": [
+      "dove",
+      "dove_vrb"
+    ],
+    "mobile": [
+      "mobile",
+      "mobile_geo"
+    ],
+    "project": [
+      "project_nou",
+      "project_vrb"
+    ],
+    "convict": [
+      "convict_nou",
+      "convict_vrb"
+    ],
+    "invalid": [
+      "invalid_adj",
+      "invalid_nou"
+    ],
+    "ravel": [
+      "ravel_nam"
+    ],
+    "object": [
+      "object_nou"
+    ],
+    "overthrow": [
+      "overthrow_nou",
+      "overthrow_vrb"
+    ],
+    "row": [
+      "row_1"
+    ],
+    "affect": [
+      "affect",
+      "affect_nou-psy"
+    ],
+    "buffet": [
+      "buffet_nou",
+      "buffet_vrb"
+    ],
+    "discharge": [
+      "discharge_nou",
+      "discharge_vrb"
+    ],
+    "transport": [
+      "transport_nou",
+      "transport_vrb"
+    ],
+    "reject": [
+      "reject_nou",
+      "reject_vrb"
+    ],
+    "console": [
+      "console_nou",
+      "console_vrb"
+    ],
+    "nestle": [
+      "nestle_nam",
+      "nestle_vrb"
+    ],
+    "refuse": [
+      "refuse_nou",
+      "refuse_vrb"
+    ],
+    "read": [
+      "read_past",
+      "read_present"
+    ],
+    "graduate": [
+      "graduate_adj-nou",
+      "graduate_vrb"
+    ],
+    "august": [
+      "august",
+      "august_nam"
+    ],
+    "fragment": [
+      "fragment_nou",
+      "fragment_vrb"
+    ],
+    "contract": [
+      "contract_nou",
+      "contract_vrb"
+    ],
+    "bologna": [
+      "bologna_geo"
+    ],
+    "contest": [
+      "contest_nou",
+      "contest_vrb"
+    ],
+    "conscript": [
+      "conscript_nou",
+      "conscript_vrb"
+    ],
+    "interchange": [
+      "interchange_nou"
+    ],
+    "axes": [
+      "axes_nou",
+      "axes_nou-vrb"
+    ],
+    "escort": [
+      "escort_nou",
+      "escort_vrb"
+    ],
+    "conflict": [
+      "conflict_nou",
+      "conflict_vrb"
+    ],
+    "convert": [
+      "convert_nou",
+      "convert_vrb"
+    ],
+    "implant": [
+      "implant_nou",
+      "implant_vrb"
+    ],
+    "initiate": [
+      "initiate_nou",
+      "initiate_vrb"
+    ],
+    "delegate": [
+      "delegate_nou",
+      "delegate_vrb"
+    ],
+    "insult": [
+      "insult_nou",
+      "insult_vrb"
+    ],
+    "live": [
+      "live_adj",
+      "live_vrb"
+    ],
+    "aggregate": [
+      "aggregate_adj-nou",
+      "aggregate_vrb"
+    ],
+    "subject": [
+      "subject_adj-nou"
+    ],
+    "degenerate": [
+      "degenerate_adj-nou",
+      "degenerate_vrb"
+    ],
+    "appropriate": [
+      "appropriate_adj",
+      "appropriate_vrb"
+    ],
+    "abuse": [
+      "abuse_nou",
+      "abuse_vrb"
+    ],
+    "close": [
+      "close_adj-nou",
+      "close_vrb"
+    ],
+    "invert": [
+      "invert_adj-nou",
+      "invert_vrb"
+    ],
+    "reading": [
+      "reading_en",
+      "reading_geo"
+    ],
+    "lead": [
+      "lead_nou",
+      "lead_nou-vrb"
+    ],
+    "tear": [
+      "tear_nou",
+      "tear_vrb"
+    ],
+    "syndicate": [
+      "syndicate_nou",
+      "syndicate_vrb"
+    ],
+    "consort": [
+      "consort_nou"
+    ],
+    "pervert": [
+      "pervert_nou",
+      "pervert_vrb"
+    ],
+    "associate": [
+      "associate_adj-nou",
+      "associate_vrb"
+    ],
+    "deviate": [
+      "deviate_nou",
+      "deviate_vrb"
+    ],
+    "intrigue": [
+      "intrigue_nou",
+      "intrigue_nou-vrb"
+    ],
+    "misuse": [
+      "misuse_nou",
+      "misuse_vrb"
+    ],
+    "learned": [
+      "learned_adj",
+      "learned_vrb"
+    ],
+    "increment": [
+      "increment_nou",
+      "increment_vrb"
+    ],
+    "compound": [
+      "compound_nou",
+      "compound_vrb"
+    ],
+    "combine": [
+      "combine_nou",
+      "combine_vrb"
+    ],
+    "analyses": [
+      "analyses_nou",
+      "analyses_vrb"
+    ],
+    "sow": [
+      "sow",
+      "sow_nou"
+    ],
+    "job": [
+      "job"
+    ],
+    "correlate": [
+      "correlate_nou",
+      "correlate_nou-vrb"
+    ],
+    "consummate": [
+      "consummate_adj",
+      "consummate_vrb"
+    ],
+    "subordinate": [
+      "subordinate_adj-nou",
+      "subordinate_vrb"
+    ],
+    "instrument": [
+      "instrument_nou"
+    ],
+    "affiliate": [
+      "affiliate_nou",
+      "affiliate_vrb"
+    ],
+    "excuse": [
+      "excuse_nou",
+      "excuse_vrb"
+    ],
+    "blessed": [
+      "blessed_adj",
+      "blessed_vrb"
+    ],
+    "aged": [
+      "aged",
+      "aged_adj"
+    ]
+  },
+  "label_maps": {
+    "implement": {
+      "implement_nou": 0,
+      "implement_vrb": 1
+    },
+    "addict": {
+      "addict_nou": 0
+    },
+    "moderate": {
+      "moderate_adj-nou": 0,
+      "moderate_vrb": 1
+    },
+    "articulate": {
+      "articulate_adj": 0,
+      "articulate_vrb": 1
+    },
+    "compress": {
+      "compress": 0,
+      "compress_nou": 1
+    },
+    "extract": {
+      "extract_nou": 0,
+      "extract_vrb": 1
+    },
+    "supplement": {
+      "supplement_nou": 0,
+      "supplement_vrb": 1
+    },
+    "intimate": {
+      "intimate_adj": 0
+    },
+    "transplant": {
+      "transplant_nou": 0,
+      "transplant_vrb": 1
+    },
+    "postulate": {
+      "postulate_nou": 0,
+      "postulate_vrb": 1
+    },
+    "import": {
+      "import_nou": 0,
+      "import_vrb": 1
+    },
+    "recount": {
+      "recount_nou": 0,
+      "recount_vrb": 1
+    },
+    "diagnoses": {
+      "diagnoses_nou": 0,
+      "diagnoses_vrb": 1
+    },
+    "abstract": {
+      "abstract_adj-nou": 0,
+      "abstract_vrb": 1
+    },
+    "rodeo": {
+      "rodeo": 0,
+      "rodeo_geo": 1
+    },
+    "diffuse": {
+      "diffuse_adj": 0,
+      "diffuse_vrb": 1
+    },
+    "perfect": {
+      "perfect_adj": 0,
+      "perfect_vrb": 1
+    },
+    "increase": {
+      "increase_nou": 0,
+      "increase_vrb": 1
+    },
+    "discount": {
+      "discount_nou": 0,
+      "discount_vrb": 1
+    },
+    "jesus": {
+      "jesus": 0,
+      "jesus_es": 1
+    },
+    "conjugate": {
+      "conjugate_adj-nou": 0,
+      "conjugate_vrb": 1
+    },
+    "pasty": {
+      "pasty_adj": 0,
+      "pasty_nou": 1
+    },
+    "document": {
+      "document_nou": 0,
+      "document_vrb": 1
+    },
+    "bow": {
+      "bow_nou-knot": 0,
+      "bow_nou-ship": 1
+    },
+    "record": {
+      "record_nou": 0,
+      "record_vrb": 1
+    },
+    "suspect": {
+      "suspect_adj-nou": 0,
+      "suspect_vrb": 1
+    },
+    "desert": {
+      "desert_nou": 0
+    },
+    "defect": {
+      "defect_nou": 0,
+      "defect_vrb": 1
+    },
+    "insert": {
+      "insert_nou": 0,
+      "insert_vrb": 1
+    },
+    "incline": {
+      "incline_nou": 0,
+      "incline_vrb": 1
+    },
+    "confines": {
+      "confines_nou": 0,
+      "confines_vrb": 1
+    },
+    "expatriate": {
+      "expatriate_nou": 0,
+      "expatriate_vrb": 1
+    },
+    "decrease": {
+      "decrease_nou": 0,
+      "decrease_vrb": 1
+    },
+    "incense": {
+      "incense_nou": 0
+    },
+    "alternate": {
+      "alternate_adj-nou": 0,
+      "alternate_vrb": 1
+    },
+    "frequent": {
+      "frequent_adj": 0,
+      "frequent_vrb": 1
+    },
+    "animate": {
+      "animate_adj-nou": 0,
+      "animate_vrb": 1
+    },
+    "progress": {
+      "progress_nou": 0,
+      "progress_vrb": 1
+    },
+    "mouth": {
+      "mouth_nou": 0
+    },
+    "exploit": {
+      "exploit_nou": 0,
+      "exploit_vrb": 1
+    },
+    "moped": {
+      "moped_nou": 0
+    },
+    "deliberate": {
+      "deliberate_adj": 0,
+      "deliberate_vrb": 1
+    },
+    "refund": {
+      "refund_nou": 0,
+      "refund_vrb": 1
+    },
+    "produce": {
+      "produce_nou": 0,
+      "produce_vrb": 1
+    },
+    "content": {
+      "content_nou": 0
+    },
+    "uses": {
+      "uses_nou": 0,
+      "uses_vrb": 1
+    },
+    "mate": {
+      "mate": 0,
+      "mate_nou": 1
+    },
+    "entrance": {
+      "entrance_nou": 0
+    },
+    "estimate": {
+      "estimate_nou": 0,
+      "estimate_vrb": 1
+    },
+    "attribute": {
+      "attribute_nou": 0,
+      "attribute_vrb": 1
+    },
+    "converse": {
+      "converse_adj-nou": 0,
+      "converse_vrb": 1
+    },
+    "upset": {
+      "upset_nou": 0,
+      "upset_vrb": 1
+    },
+    "precipitate": {
+      "precipitate_adj-nou": 0,
+      "precipitate_vrb": 1
+    },
+    "use": {
+      "use_nou": 0,
+      "use_vrb": 1
+    },
+    "laminate": {
+      "laminate_nou": 0,
+      "laminate_vrb": 1
+    },
+    "ornament": {
+      "ornament_nou": 0,
+      "ornament_vrb": 1
+    },
+    "resume": {
+      "resume_nou": 0,
+      "resume_vrb": 1
+    },
+    "invite": {
+      "invite_nou": 0,
+      "invite_vrb": 1
+    },
+    "present": {
+      "present_adj-nou": 0,
+      "present_vrb": 1
+    },
+    "protest": {
+      "protest_nou": 0,
+      "protest_vrb": 1
+    },
+    "sake": {
+      "sake": 0,
+      "sake_jp": 1
+    },
+    "wind": {
+      "wind_nou": 0,
+      "wind_vrb": 1
+    },
+    "house": {
+      "house_nou": 0,
+      "house_vrb": 1
+    },
+    "discard": {
+      "discard_nou": 0,
+      "discard_vrb": 1
+    },
+    "duplicate": {
+      "duplicate_adj-nou": 0,
+      "duplicate_vrb": 1
+    },
+    "retard": {
+      "retard_nou": 0,
+      "retard_vrb": 1
+    },
+    "expose": {
+      "expose_nou": 0,
+      "expose_vrb": 1
+    },
+    "transform": {
+      "transform": 0,
+      "transform_nou": 1
+    },
+    "minute": {
+      "minute": 0,
+      "minute_adj": 1
+    },
+    "perfume": {
+      "perfume_nou": 0,
+      "perfume_vrb": 1
+    },
+    "conglomerate": {
+      "conglomerate_adj-nou": 0
+    },
+    "predicate": {
+      "predicate_nou": 0
+    },
+    "contrast": {
+      "contrast_nou": 0,
+      "contrast_vrb": 1
+    },
+    "compact": {
+      "compact_adj-nou": 0
+    },
+    "rerelease": {
+      "rerelease": 0,
+      "rerelease_vrb": 1
+    },
+    "lives": {
+      "lives_nou": 0,
+      "lives_vrb": 1
+    },
+    "abuses": {
+      "abuses_nou": 0,
+      "abuses_vrb": 1
+    },
+    "advocate": {
+      "advocate_nou": 0,
+      "advocate_vrb": 1
+    },
+    "export": {
+      "export_nou": 0,
+      "export_vrb": 1
+    },
+    "impact": {
+      "impact_nou": 0,
+      "impact_vrb": 1
+    },
+    "isolate": {
+      "isolate": 0,
+      "isolate_nou": 1
+    },
+    "rebel": {
+      "rebel_nou": 0,
+      "rebel_vrb": 1
+    },
+    "coordinate": {
+      "coordinate_adj-nou": 0,
+      "coordinate_vrb": 1
+    },
+    "pigment": {
+      "pigment_nou": 0
+    },
+    "conduct": {
+      "conduct_nou": 0,
+      "conduct_vrb": 1
+    },
+    "bass": {
+      "bass": 0,
+      "bass_corp": 1
+    },
+    "permit": {
+      "permit_nou": 0,
+      "permit_vrb": 1
+    },
+    "winds": {
+      "winds_nou": 0,
+      "winds_vrb": 1
+    },
+    "construct": {
+      "construct_nou": 0,
+      "construct_vrb": 1
+    },
+    "celtic": {
+      "celtic": 0,
+      "celtic_adj-nou-sports": 1
+    },
+    "approximate": {
+      "approximate_adj-nou": 0,
+      "approximate_vrb": 1
+    },
+    "polish": {
+      "polish": 0,
+      "polish_geo": 1
+    },
+    "elaborate": {
+      "elaborate_adj": 0
+    },
+    "wound": {
+      "wound_nou-vrb": 0,
+      "wound_vrb": 1
+    },
+    "separate": {
+      "separate_adj": 0,
+      "separate_vrb": 1
+    },
+    "dove": {
+      "dove": 0,
+      "dove_vrb": 1
+    },
+    "mobile": {
+      "mobile": 0,
+      "mobile_geo": 1
+    },
+    "project": {
+      "project_nou": 0,
+      "project_vrb": 1
+    },
+    "convict": {
+      "convict_nou": 0,
+      "convict_vrb": 1
+    },
+    "invalid": {
+      "invalid_adj": 0,
+      "invalid_nou": 1
+    },
+    "ravel": {
+      "ravel_nam": 0
+    },
+    "object": {
+      "object_nou": 0
+    },
+    "overthrow": {
+      "overthrow_nou": 0,
+      "overthrow_vrb": 1
+    },
+    "row": {
+      "row_1": 0
+    },
+    "affect": {
+      "affect": 0,
+      "affect_nou-psy": 1
+    },
+    "buffet": {
+      "buffet_nou": 0,
+      "buffet_vrb": 1
+    },
+    "discharge": {
+      "discharge_nou": 0,
+      "discharge_vrb": 1
+    },
+    "transport": {
+      "transport_nou": 0,
+      "transport_vrb": 1
+    },
+    "reject": {
+      "reject_nou": 0,
+      "reject_vrb": 1
+    },
+    "console": {
+      "console_nou": 0,
+      "console_vrb": 1
+    },
+    "nestle": {
+      "nestle_nam": 0,
+      "nestle_vrb": 1
+    },
+    "refuse": {
+      "refuse_nou": 0,
+      "refuse_vrb": 1
+    },
+    "read": {
+      "read_past": 0,
+      "read_present": 1
+    },
+    "graduate": {
+      "graduate_adj-nou": 0,
+      "graduate_vrb": 1
+    },
+    "august": {
+      "august": 0,
+      "august_nam": 1
+    },
+    "fragment": {
+      "fragment_nou": 0,
+      "fragment_vrb": 1
+    },
+    "contract": {
+      "contract_nou": 0,
+      "contract_vrb": 1
+    },
+    "bologna": {
+      "bologna_geo": 0
+    },
+    "contest": {
+      "contest_nou": 0,
+      "contest_vrb": 1
+    },
+    "conscript": {
+      "conscript_nou": 0,
+      "conscript_vrb": 1
+    },
+    "interchange": {
+      "interchange_nou": 0
+    },
+    "axes": {
+      "axes_nou": 0,
+      "axes_nou-vrb": 1
+    },
+    "escort": {
+      "escort_nou": 0,
+      "escort_vrb": 1
+    },
+    "conflict": {
+      "conflict_nou": 0,
+      "conflict_vrb": 1
+    },
+    "convert": {
+      "convert_nou": 0,
+      "convert_vrb": 1
+    },
+    "implant": {
+      "implant_nou": 0,
+      "implant_vrb": 1
+    },
+    "initiate": {
+      "initiate_nou": 0,
+      "initiate_vrb": 1
+    },
+    "delegate": {
+      "delegate_nou": 0,
+      "delegate_vrb": 1
+    },
+    "insult": {
+      "insult_nou": 0,
+      "insult_vrb": 1
+    },
+    "live": {
+      "live_adj": 0,
+      "live_vrb": 1
+    },
+    "aggregate": {
+      "aggregate_adj-nou": 0,
+      "aggregate_vrb": 1
+    },
+    "subject": {
+      "subject_adj-nou": 0
+    },
+    "degenerate": {
+      "degenerate_adj-nou": 0,
+      "degenerate_vrb": 1
+    },
+    "appropriate": {
+      "appropriate_adj": 0,
+      "appropriate_vrb": 1
+    },
+    "abuse": {
+      "abuse_nou": 0,
+      "abuse_vrb": 1
+    },
+    "close": {
+      "close_adj-nou": 0,
+      "close_vrb": 1
+    },
+    "invert": {
+      "invert_adj-nou": 0,
+      "invert_vrb": 1
+    },
+    "reading": {
+      "reading_en": 0,
+      "reading_geo": 1
+    },
+    "lead": {
+      "lead_nou": 0,
+      "lead_nou-vrb": 1
+    },
+    "tear": {
+      "tear_nou": 0,
+      "tear_vrb": 1
+    },
+    "syndicate": {
+      "syndicate_nou": 0,
+      "syndicate_vrb": 1
+    },
+    "consort": {
+      "consort_nou": 0
+    },
+    "pervert": {
+      "pervert_nou": 0,
+      "pervert_vrb": 1
+    },
+    "associate": {
+      "associate_adj-nou": 0,
+      "associate_vrb": 1
+    },
+    "deviate": {
+      "deviate_nou": 0,
+      "deviate_vrb": 1
+    },
+    "intrigue": {
+      "intrigue_nou": 0,
+      "intrigue_nou-vrb": 1
+    },
+    "misuse": {
+      "misuse_nou": 0,
+      "misuse_vrb": 1
+    },
+    "learned": {
+      "learned_adj": 0,
+      "learned_vrb": 1
+    },
+    "increment": {
+      "increment_nou": 0,
+      "increment_vrb": 1
+    },
+    "compound": {
+      "compound_nou": 0,
+      "compound_vrb": 1
+    },
+    "combine": {
+      "combine_nou": 0,
+      "combine_vrb": 1
+    },
+    "analyses": {
+      "analyses_nou": 0,
+      "analyses_vrb": 1
+    },
+    "sow": {
+      "sow": 0,
+      "sow_nou": 1
+    },
+    "job": {
+      "job": 0
+    },
+    "correlate": {
+      "correlate_nou": 0,
+      "correlate_nou-vrb": 1
+    },
+    "consummate": {
+      "consummate_adj": 0,
+      "consummate_vrb": 1
+    },
+    "subordinate": {
+      "subordinate_adj-nou": 0,
+      "subordinate_vrb": 1
+    },
+    "instrument": {
+      "instrument_nou": 0
+    },
+    "affiliate": {
+      "affiliate_nou": 0,
+      "affiliate_vrb": 1
+    },
+    "excuse": {
+      "excuse_nou": 0,
+      "excuse_vrb": 1
+    },
+    "blessed": {
+      "blessed_adj": 0,
+      "blessed_vrb": 1
+    },
+    "aged": {
+      "aged": 0,
+      "aged_adj": 1
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "out": "heteronym_runs/e1",
+  "epochs": 5,
+  "batch_size": 32,
+  "lr": 0.0003,
+  "weight_decay": 0.01,
+  "max_seq_len": 384,
+  "max_candidates": 4,
+  "d_model": 256,
+  "n_heads": 4,
+  "n_layers": 4,
+  "ffn_dim": 512,
+  "dropout": 0.1,
+  "seed": 42,
+  "device": "cpu",
+  "train_json": null,
+  "valid_json": null,
+  "group_key": "lower"
+}
