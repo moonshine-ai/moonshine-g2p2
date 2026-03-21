@@ -6,6 +6,7 @@ Example::
 
     python train_heteronym.py --out ./heteronym_runs/run1 --epochs 3
     python train_heteronym.py --out ./heteronym_runs/run1 --epochs 10 --resume
+    python train_heteronym.py --out ./heteronym_runs/run1 --wandb --wandb-project myproj
 
 Each epoch writes ``checkpoint.pt`` under ``--out`` (model, optimizer, progress).
 With ``--resume``, training continues from ``checkpoint.pt`` under ``--out``;
@@ -173,6 +174,29 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         action="store_true",
         help=f"continue from {CHECKPOINT_NAME} under --out (full checkpoint required)",
     )
+    p.add_argument(
+        "--wandb",
+        action="store_true",
+        help="log metrics to Weights & Biases (requires wandb login or WANDB_API_KEY)",
+    )
+    p.add_argument(
+        "--wandb-project",
+        type=str,
+        default="heteronym",
+        help="W&B project name (used with --wandb)",
+    )
+    p.add_argument(
+        "--wandb-run-name",
+        type=str,
+        default=None,
+        help="W&B run name (optional)",
+    )
+    p.add_argument(
+        "--wandb-entity",
+        type=str,
+        default=None,
+        help="W&B entity (team or username; optional, defaults from wandb settings)",
+    )
     return p.parse_args(argv)
 
 
@@ -309,6 +333,66 @@ def main(argv: list[str] | None = None) -> None:
     train_augment = not args.no_train_augment
     balance_training = not args.no_balance_train
 
+    wandb_run = None
+    if args.wandb:
+        import wandb
+
+        wb_config = {
+            k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()
+        }
+        wandb_run = wandb.init(
+            project=args.wandb_project,
+            name=args.wandb_run_name,
+            entity=args.wandb_entity,
+            config=wb_config,
+            dir=str(out),
+        )
+
+    try:
+        best_acc = _train_loop(
+            args=args,
+            out=out,
+            device=device,
+            model=model,
+            optimizer=opt,
+            train_recs=train_recs,
+            valid_recs=valid_recs,
+            char_vocab=char_vocab,
+            ordered=ordered,
+            label_maps=label_maps,
+            start_epoch=start_epoch,
+            best_acc=best_acc,
+            train_augment=train_augment,
+            balance_training=balance_training,
+            log_wandb=bool(args.wandb),
+        )
+    finally:
+        if wandb_run is not None:
+            import wandb
+
+            wandb.finish()
+
+    logger.info("done. best valid acc %.4f -> %s", best_acc, out / "model.pt")
+
+
+def _train_loop(
+    *,
+    args: argparse.Namespace,
+    out: Path,
+    device: torch.device,
+    model: TinyHeteronymTransformer,
+    optimizer: AdamW,
+    train_recs,
+    valid_recs,
+    char_vocab,
+    ordered,
+    label_maps,
+    start_epoch: int,
+    best_acc: float,
+    train_augment: bool,
+    balance_training: bool,
+    log_wandb: bool,
+) -> float:
     for epoch in range(start_epoch, args.epochs):
         model.train()
         losses = []
@@ -327,7 +411,7 @@ def main(argv: list[str] | None = None) -> None:
             balance_training=balance_training,
             surface_noise_prob=args.surface_noise_prob,
         ):
-            opt.zero_grad(set_to_none=True)
+            optimizer.zero_grad(set_to_none=True)
             logits = model(
                 batch["input_ids"].to(device),
                 batch["attention_mask"].to(device),
@@ -340,7 +424,7 @@ def main(argv: list[str] | None = None) -> None:
             )
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            opt.step()
+            optimizer.step()
             losses.append(float(loss.item()))
         acc = _evaluate(
             model,
@@ -354,10 +438,11 @@ def main(argv: list[str] | None = None) -> None:
             batch_size=args.batch_size,
             device=device,
         )
+        mean_loss = sum(losses) / max(len(losses), 1)
         logger.info(
             "epoch %d | train loss %.4f | valid acc %.4f",
             epoch + 1,
-            sum(losses) / max(len(losses), 1),
+            mean_loss,
             acc,
         )
         if acc <= best_acc:
@@ -377,13 +462,24 @@ def main(argv: list[str] | None = None) -> None:
         _save_checkpoint(
             out,
             model=model,
-            optimizer=opt,
+            optimizer=optimizer,
             completed_epochs=epoch + 1,
             best_acc=best_acc,
             args=args,
         )
+        if log_wandb:
+            import wandb
 
-    logger.info("done. best valid acc %.4f -> %s", best_acc, out / "model.pt")
+            wandb.log(
+                {
+                    "train/loss": mean_loss,
+                    "valid/accuracy": acc,
+                    "valid/best_accuracy": best_acc,
+                },
+                step=epoch + 1,
+            )
+
+    return best_acc
 
 
 if __name__ == "__main__":

@@ -1,3 +1,4 @@
 # Optional: train the heteronym Transformer (LibriG2P via Hugging Face hub files).
 torch>=2.0
 huggingface_hub>=0.20
+wandb>=0.16
