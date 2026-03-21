@@ -445,19 +445,18 @@ def _train_loop(
             mean_loss,
             acc,
         )
-        if acc <= best_acc:
-            best_acc = acc
-            torch.save(model.state_dict(), out / "model.pt")
-            save_training_artifacts(
-                out,
-                char_vocab=char_vocab,
-                ordered_candidates=ordered,
-                label_maps=label_maps,
-                max_candidates=args.max_candidates,
-                group_key=args.group_key,
-            )
-            with (out / "train_config.json").open("w", encoding="utf-8") as f:
-                json.dump(vars(args), f, default=str, indent=2)
+        best_acc = acc
+        torch.save(model.state_dict(), out / "model.pt")
+        save_training_artifacts(
+            out,
+            char_vocab=char_vocab,
+            ordered_candidates=ordered,
+            label_maps=label_maps,
+            max_candidates=args.max_candidates,
+            group_key=args.group_key,
+        )
+        with (out / "train_config.json").open("w", encoding="utf-8") as f:
+            json.dump(vars(args), f, default=str, indent=2)
 
         _save_checkpoint(
             out,

@@ -15,6 +15,7 @@ from heteronym.librig2p import (
     HomographRecord,
     apply_train_augmentation,
     build_homograph_candidate_tables,
+    inference_context_window,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
@@ -130,6 +131,18 @@ def test_augment_preserves_homograph_slice() -> None:
         assert out is not None
         t2, s2, e2 = out
         assert t2[s2:e2] == ref
+
+
+def test_inference_context_window_keeps_span() -> None:
+    pad = "0123456789" * 30
+    text = pad + "READ" + pad
+    s = text.index("READ")
+    e = s + 4
+    out = inference_context_window(text, s, e, max_seq_len=64)
+    assert out is not None
+    t2, s2, e2 = out
+    assert len(t2) <= 64
+    assert t2[s2:e2] == "READ"
 
 
 def test_random_crop_keeps_span_in_window() -> None:
