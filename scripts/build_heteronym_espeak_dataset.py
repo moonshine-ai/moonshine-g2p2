@@ -28,9 +28,6 @@ Then train with LibriG2P valid only, e.g.::
     python train_heteronym.py --train-json data/en_us/heteronym-training/homograph_train.json \\
         --valid-json <path-to-homograph_valid.json>
 
-CMUdict lists multiple pronunciations for many function words (``the``, ``a``, …). By default
-those keys are skipped via ``--ignore-homograph-keys`` so the corpus skews toward content
-words; pass ``--ignore-homograph-keys ''`` to keep them.
 """
 
 from __future__ import annotations
@@ -100,6 +97,7 @@ _worker_cmudict: CmudictIpa | None = None
 _worker_phonemizer: EspeakPhonemizer | None = None
 _worker_voice: str = "en-us"
 
+
 def _mp_init(dict_path: str, voice: str) -> None:
     global _worker_cmudict, _worker_phonemizer, _worker_voice
     _worker_cmudict = CmudictIpa(dict_path)
@@ -155,14 +153,18 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=Path("data/en_us/wiki-text.txt"),
         help="one sentence per line",
     )
-    p.add_argument("--max-sentences", type=int, default=100_000, help="cap source sentences")
+    p.add_argument(
+        "--max-sentences", type=int, default=1_000_000, help="cap source sentences"
+    )
     p.add_argument(
         "--max-sentence-chars",
         type=int,
         default=384,
         help="skip longer sentences (and bound wikitext clause length)",
     )
-    p.add_argument("--voice", type=str, default="en-us", help="eSpeak voice, e.g. en-us")
+    p.add_argument(
+        "--voice", type=str, default="en-us", help="eSpeak voice, e.g. en-us"
+    )
     p.add_argument(
         "--max-candidates",
         type=int,
@@ -174,15 +176,6 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=int,
         default=1,
         help="parallel processes (each loads libespeak-ng; >1 speeds up on multi-core machines)",
-    )
-    p.add_argument(
-        "--ignore-homograph-keys",
-        type=str,
-        default="the,a,to,of,and,or",
-        help=(
-            "comma-separated lowercase CMUdict keys to skip (reduces weak-form articles "
-            "and similar); use '' to disable"
-        ),
     )
     return p.parse_args(argv)
 

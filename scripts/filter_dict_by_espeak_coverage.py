@@ -18,6 +18,16 @@ ignored for further heteronym detection and eSpeak extraction (dominant-reading
 shortcut). Use ``--heteronym-mono-skip-after 0`` to disable. This shortcut is not
 applied when ``--workers`` is greater than 1.
 
+Homograph keys from ``--ignore-homographs-file`` (default path under
+``heteronym-training/``) and ``--ignore-homograph-keys`` are **pinned** to the
+**first** dictionary IPA for that key (same row order as ``dict.tsv``): that IPA is
+inserted into the eSpeak “seen” map up front and the key is added to the same
+dynamic-ignore set used after ``--heteronym-mono-skip-after`` fires, so heteronym
+detection skips it and the writer keeps only that pronunciation. Keys not in the
+dict or with a single pronunciation are unchanged. If the default file is missing,
+no keys are loaded from it. Use a non-existent ``--ignore-homographs-file`` path to
+disable file pins only.
+
 Single-pronunciation words are always kept unchanged.
 
 Requires ``espeak-phonemizer`` and system ``libespeak-ng`` (see
@@ -65,11 +75,43 @@ def _parse_ignore_keys(s: str) -> frozenset[str]:
     return frozenset(x.strip().lower() for x in s.split(",") if x.strip())
 
 
+def _load_ignore_homographs_file(path: Path) -> frozenset[str]:
+    """One CMUdict key per line (lowercased); empty lines and ``#`` comments skipped."""
+    if not path.is_file():
+        return frozenset()
+    keys: set[str] = set()
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        keys.add(line.lower())
+    return frozenset(keys)
+
+
 def _build_word_to_ipas(cmu: CmudictIpa) -> dict[str, list[str]]:
     d: dict[str, list[str]] = {}
     for w, ipa in cmu.iter_pronunciation_rows():
         d.setdefault(w, []).append(ipa)
     return d
+
+
+def _manual_pin_seen_and_skip(
+    word_ipas: dict[str, list[str]],
+    manual_keys: frozenset[str],
+) -> tuple[dict[str, set[str]], frozenset[str]]:
+    """
+    For each manual key with 2+ CMU readings, seed seen with the first IPA in file
+    order and mark the key for immediate dynamic ignore (same effect as mono-skip).
+    """
+    seen_seed: dict[str, set[str]] = {}
+    skip_keys: set[str] = set()
+    for k in manual_keys:
+        alts = word_ipas.get(k)
+        if not alts or len(alts) < 2:
+            continue
+        seen_seed[k] = {alts[0]}
+        skip_keys.add(k)
+    return seen_seed, frozenset(skip_keys)
 
 
 def _merge_seen(dst: dict[str, set[str]], src: dict[str, set[str]]) -> None:
@@ -84,17 +126,23 @@ def _collect_seen_for_lines(
     phonemizer: EspeakPhonemizer,
     voice: str,
     progress_desc: str | None = None,
-    ignore_keys: frozenset[str] = frozenset(),
+    seen_seed: dict[str, set[str]] | None = None,
+    dynamic_ignore_seed: frozenset[str] = frozenset(),
     heteronym_mono_skip_after: int = 0,
 ) -> tuple[dict[str, set[str]], frozenset[str]]:
     """
-    Scan *lines* in order. If *heteronym_mono_skip_after* > 0, homograph keys that
-    appear in at least that many sentences (as CMU multi-pron tokens) while exactly
-    one dictionary alternative has ever matched eSpeak are added to an internal ignore
-    set so later lines skip them for detection and extraction.
+    Scan *lines* in order. *seen_seed* / *dynamic_ignore_seed* prepopulate the same
+    structures used after eSpeak alignment (manual “pin to first pronunciation”).
+
+    If *heteronym_mono_skip_after* > 0, homograph keys that appear in at least that
+    many sentences (as CMU multi-pron tokens) while exactly one dictionary alternative
+    has ever matched eSpeak are added to *dynamic_ignore* so later lines skip them.
     """
     seen: dict[str, set[str]] = defaultdict(set)
-    dynamic_ignore: set[str] = set()
+    if seen_seed:
+        for k, vs in seen_seed.items():
+            seen[k].update(vs)
+    dynamic_ignore: set[str] = set(dynamic_ignore_seed)
     ambiguous_hits: dict[str, int] = defaultdict(int)
     it: Iterable[str] = lines
     if progress_desc:
@@ -102,7 +150,7 @@ def _collect_seen_for_lines(
     for text in it:
         if not text.strip():
             continue
-        ignore = frozenset(ignore_keys | dynamic_ignore)
+        ignore = frozenset(dynamic_ignore)
         if not sentence_has_ambiguous_heteronym(
             text,
             cmudict=cmudict,
@@ -145,15 +193,15 @@ def _collect_seen_for_lines(
 _worker_cmudict: CmudictIpa | None = None
 _worker_phonemizer: EspeakPhonemizer | None = None
 _worker_voice: str = "en-us"
-_worker_ignore_keys: frozenset[str] = frozenset()
+_worker_dynamic_ignore_seed: frozenset[str] = frozenset()
 
 
-def _mp_init(dict_path: str, voice: str, ignore_keys_tuple: tuple[str, ...]) -> None:
-    global _worker_cmudict, _worker_phonemizer, _worker_voice, _worker_ignore_keys
+def _mp_init(dict_path: str, voice: str, dynamic_ignore_seed_tuple: tuple[str, ...]) -> None:
+    global _worker_cmudict, _worker_phonemizer, _worker_voice, _worker_dynamic_ignore_seed
     _worker_cmudict = CmudictIpa(dict_path)
     _worker_phonemizer = EspeakPhonemizer(default_voice=voice)
     _worker_voice = voice
-    _worker_ignore_keys = frozenset(ignore_keys_tuple)
+    _worker_dynamic_ignore_seed = frozenset(dynamic_ignore_seed_tuple)
 
 
 def _mp_worker(chunk: list[str]) -> dict[str, set[str]]:
@@ -163,7 +211,8 @@ def _mp_worker(chunk: list[str]) -> dict[str, set[str]]:
         cmudict=_worker_cmudict,
         phonemizer=_worker_phonemizer,
         voice=_worker_voice,
-        ignore_keys=_worker_ignore_keys,
+        seen_seed=None,
+        dynamic_ignore_seed=_worker_dynamic_ignore_seed,
         heteronym_mono_skip_after=0,
     )
     return seen
@@ -253,12 +302,22 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="parallel processes (each loads libespeak-ng)",
     )
     p.add_argument(
+        "--ignore-homographs-file",
+        type=Path,
+        default=Path("data/en_us/heteronym-training/ignore_homographs.txt"),
+        help=(
+            "optional text file: one lowercase CMUdict key per line; each multi-pron "
+            "key is pinned to its first dict IPA and skipped like mono-skip (missing "
+            "file = no keys from file)"
+        ),
+    )
+    p.add_argument(
         "--ignore-homograph-keys",
         type=str,
         default="",
         help=(
-            "comma-separated lowercase CMUdict keys to skip when scanning text "
-            "(default: none)"
+            "comma-separated lowercase CMUdict keys: same pinning as "
+            "--ignore-homographs-file (merged with file keys)"
         ),
     )
     p.add_argument(
@@ -305,7 +364,21 @@ def main(argv: list[str] | None = None) -> None:
 
     logger.info("loaded %d sentences from %s", len(lines), input_path)
 
-    ignore_keys = _parse_ignore_keys(args.ignore_homograph_keys)
+    ignore_file = args.ignore_homographs_file.resolve()
+    from_file = _load_ignore_homographs_file(ignore_file)
+    from_cli = _parse_ignore_keys(args.ignore_homograph_keys)
+    manual_pin_keys = from_file | from_cli
+    if from_file:
+        logger.info(
+            "loaded %d manual homograph key(s) from %s",
+            len(from_file),
+            ignore_file,
+        )
+    if from_cli:
+        logger.info(
+            "plus %d key(s) from --ignore-homograph-keys",
+            len(from_cli),
+        )
     mono_skip = args.heteronym_mono_skip_after
     if args.workers > 1 and mono_skip > 0:
         logger.warning(
@@ -316,6 +389,14 @@ def main(argv: list[str] | None = None) -> None:
 
     cmu = CmudictIpa(dict_path)
     word_ipas = _build_word_to_ipas(cmu)
+    seen_seed, dynamic_ignore_seed = _manual_pin_seen_and_skip(
+        word_ipas, manual_pin_keys
+    )
+    if seen_seed:
+        logger.info(
+            "pinned %d multi-pron key(s) to first dictionary IPA (skip heteronym scan)",
+            len(seen_seed),
+        )
 
     seen: dict[str, set[str]] = defaultdict(set)
     mono_skipped_keys: frozenset[str] = frozenset()
@@ -335,7 +416,8 @@ def main(argv: list[str] | None = None) -> None:
             phonemizer=phonemizer,
             voice=args.voice,
             progress_desc="Scanning sentences",
-            ignore_keys=ignore_keys,
+            seen_seed=dict(seen_seed),
+            dynamic_ignore_seed=dynamic_ignore_seed,
             heteronym_mono_skip_after=mono_skip,
         )
         _merge_seen(seen, partial)
@@ -347,12 +429,12 @@ def main(argv: list[str] | None = None) -> None:
             w = args.workers
             step = max(1, (n + w - 1) // w)
             chunks = [lines[i : i + step] for i in range(0, n, step)]
-        ignore_tuple = tuple(sorted(ignore_keys))
+        skip_tuple = tuple(sorted(dynamic_ignore_seed))
         try:
             with ProcessPoolExecutor(
                 max_workers=args.workers,
                 initializer=_mp_init,
-                initargs=(str(dict_path), args.voice, ignore_tuple),
+                initargs=(str(dict_path), args.voice, skip_tuple),
             ) as ex:
                 futures = [ex.submit(_mp_worker, ch) for ch in chunks if ch]
                 for fut in tqdm(
@@ -372,6 +454,7 @@ def main(argv: list[str] | None = None) -> None:
                 "Could not start workers (libespeak-ng / espeak-phonemizer). "
                 f"Original error: {e}"
             ) from e
+        _merge_seen(seen, seen_seed)
 
     stats = _write_filtered_dict(
         cmu,

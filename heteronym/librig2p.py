@@ -22,6 +22,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Iterator
 
+from g2p_common import SPECIAL_PAD, CharVocab, inference_context_window
+
 logger = logging.getLogger(__name__)
 
 try:
@@ -31,10 +33,6 @@ except ImportError as e:  # pragma: no cover
     _HF_IMPORT_ERROR = e
 else:
     _HF_IMPORT_ERROR = None
-
-
-SPECIAL_PAD = "<pad>"
-SPECIAL_UNK = "<unk>"
 
 
 @dataclass(frozen=True)
@@ -145,7 +143,22 @@ def save_training_artifacts(
         "label_maps": label_maps,
     }
     with (out_dir / "homograph_index.json").open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+        json.dump(payload, f, ensure_ascii=False, indent=2    )
+
+
+def build_char_vocab_from_homograph_records(
+    records: list[HomographRecord],
+    *,
+    extra_chars: str | None = None,
+) -> CharVocab:
+    """Build a :class:`~g2p_common.CharVocab` from all characters seen in *records*."""
+    seen: set[str] = set()
+    for r in records:
+        for ch in r.char_text:
+            seen.add(ch)
+    if extra_chars:
+        seen.update(extra_chars)
+    return CharVocab(sorted(seen))
 
 
 def load_training_artifacts(dir_path: Path | str) -> tuple[CharVocab, dict[str, list[str]], dict[str, dict[str, int]], int, str]:
@@ -162,54 +175,6 @@ def load_training_artifacts(dir_path: Path | str) -> tuple[CharVocab, dict[str, 
         int(payload["max_candidates"]),
         str(payload["group_key"]),
     )
-
-
-class CharVocab:
-    """Char -> id with fixed specials at 0 and 1."""
-
-    def __init__(self, chars: list[str]) -> None:
-        self.stoi: dict[str, int] = {SPECIAL_PAD: 0, SPECIAL_UNK: 1}
-        for c in chars:
-            if c not in self.stoi:
-                self.stoi[c] = len(self.stoi)
-        self._sync_itos()
-
-    def _sync_itos(self) -> None:
-        self.itos = [""] * len(self.stoi)
-        for s, i in self.stoi.items():
-            self.itos[i] = s
-
-    @classmethod
-    def from_stoi(cls, stoi: dict[str, int]) -> CharVocab:
-        self = object.__new__(cls)
-        self.stoi = dict(stoi)
-        self._sync_itos()
-        return self
-
-    @classmethod
-    def from_records(
-        cls,
-        records: list[HomographRecord],
-        *,
-        extra_chars: str | None = None,
-    ) -> CharVocab:
-        seen: set[str] = set()
-        for r in records:
-            for ch in r.char_text:
-                seen.add(ch)
-        if extra_chars:
-            seen.update(extra_chars)
-        return cls(sorted(seen))
-
-    def to_jsonable(self) -> dict[str, int]:
-        return dict(self.stoi)
-
-    def encode(self, text: str) -> list[int]:
-        unk = self.stoi[SPECIAL_UNK]
-        return [self.stoi.get(c, unk) for c in text]
-
-    def __len__(self) -> int:
-        return len(self.stoi)
 
 
 def _group_key_for_record(r: HomographRecord, group_key: str) -> str:
@@ -317,46 +282,6 @@ def _random_context_window(
     if L < max_seq_len:
         budget = max_seq_len - L
         left = rng.randint(0, min(budget, max_left_pad)) if budget > 0 else 0
-        if left:
-            text = " " * left + text
-            s += left
-            e += left
-    return text, s, e
-
-
-def inference_context_window(
-    text: str,
-    span_s: int,
-    span_e: int,
-    max_seq_len: int,
-    *,
-    max_left_pad: int = 48,
-) -> tuple[str, int, int] | None:
-    """
-    Deterministic variant of :func:`_random_context_window` for inference.
-
-    If *text* is longer than ``max_seq_len``, crops a window that still contains
-    the span, choosing the midpoint of the valid ``w0`` range so the homograph
-    stays centered when possible. If shorter, left-pads with spaces (same cap as
-    training augmentation).
-    """
-    L = len(text)
-    s, e = span_s, span_e
-    if e > L or s < 0 or s >= e:
-        return None
-    if L > max_seq_len:
-        lo = max(0, e - max_seq_len)
-        hi = min(s, L - max_seq_len)
-        if lo > hi:
-            return None
-        w0 = (lo + hi) // 2
-        text = text[w0 : w0 + max_seq_len]
-        s -= w0
-        e -= w0
-        L = len(text)
-    if L < max_seq_len:
-        budget = max_seq_len - L
-        left = min(budget, max_left_pad) if budget > 0 else 0
         if left:
             text = " " * left + text
             s += left
@@ -509,7 +434,17 @@ def iter_encoded_batches(
                 continue
             char_text, s, e = aug
         else:
-            char_text, s, e = r.char_text, r.homograph_char_start, r.homograph_char_end
+            # Deterministic crop/pad so the homograph stays in-window (same as inference).
+            # Plain ``text[:max_seq_len]`` drops late-span rows and yields n_tot=0 / acc 0.0.
+            win = inference_context_window(
+                r.char_text,
+                r.homograph_char_start,
+                r.homograph_char_end,
+                max_seq_len,
+            )
+            if win is None:
+                continue
+            char_text, s, e = win
         ids = char_vocab.encode(char_text)
         span = [0.0] * len(ids)
         e = min(e, len(ids))

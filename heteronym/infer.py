@@ -2,21 +2,84 @@
 
 from __future__ import annotations
 
+import json
+import sys
 import unicodedata
 from pathlib import Path
+from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 import torch
 
-from heteronym.librig2p import (
-    SPECIAL_PAD,
-    inference_context_window,
-    load_training_artifacts,
-)
+from g2p_common import SPECIAL_PAD, inference_context_window
+from heteronym.librig2p import load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
 
 
 def _normalize_ipa_compare(s: str) -> str:
     return unicodedata.normalize("NFC", s).strip()
+
+
+def _snap_from_train_config(cfg: dict[str, Any]) -> dict[str, object]:
+    return {
+        "max_seq_len": int(cfg["max_seq_len"]),
+        "max_candidates": int(cfg["max_candidates"]),
+        "group_key": str(cfg["group_key"]),
+        "d_model": int(cfg["d_model"]),
+        "n_heads": int(cfg["n_heads"]),
+        "n_layers": int(cfg["n_layers"]),
+        "ffn_dim": int(cfg["ffn_dim"]),
+        "dropout": float(cfg["dropout"]),
+    }
+
+
+def _resolve_snap_and_state_dict(path: Path, ckpt: dict[str, Any]) -> tuple[dict[str, object], dict[str, torch.Tensor]]:
+    """
+    Training writes ``checkpoint.pt`` (full dict with ``args_snapshot``) and
+    ``model.pt`` (weights only). Accept either, plus optional ``train_config.json``.
+    """
+    artifacts_dir = path.parent
+
+    def load_snap_from_sidecar_files() -> dict[str, object] | None:
+        tc = artifacts_dir / "train_config.json"
+        if tc.is_file():
+            with tc.open(encoding="utf-8") as f:
+                return _snap_from_train_config(json.load(f))
+        sib = artifacts_dir / "checkpoint.pt"
+        if sib.is_file() and sib.resolve() != path.resolve():
+            other = torch.load(sib, map_location="cpu", weights_only=False)
+            snap = other.get("args_snapshot")
+            if isinstance(snap, dict):
+                return snap
+        return None
+
+    snap = ckpt.get("args_snapshot")
+    if isinstance(snap, dict):
+        if "model" not in ckpt:
+            raise ValueError(f"checkpoint missing model weights: {path}")
+        return snap, ckpt["model"]
+
+    state: dict[str, torch.Tensor]
+    if "model" in ckpt and isinstance(ckpt["model"], dict):
+        state = ckpt["model"]
+    elif "token_emb.weight" in ckpt:
+        state = ckpt  # type: ignore[assignment]
+    else:
+        raise ValueError(
+            f"unrecognized heteronym checkpoint layout (expected full checkpoint or "
+            f"model state_dict): {path}"
+        )
+
+    snap = load_snap_from_sidecar_files()
+    if snap is None:
+        raise ValueError(
+            f"checkpoint missing args_snapshot: {path}. Use checkpoint.pt, or keep "
+            f"train_config.json (or checkpoint.pt) in the same directory as model.pt."
+        )
+    return snap, state
 
 
 def match_prediction_to_cmudict_ipa(predicted: str, alts: list[str]) -> str | None:
@@ -50,9 +113,9 @@ class HeteronymDisambiguator:
             load_training_artifacts(artifacts_dir)
         )
         ckpt = torch.load(self._path, map_location="cpu", weights_only=False)
-        snap = ckpt.get("args_snapshot")
-        if not isinstance(snap, dict):
-            raise ValueError(f"checkpoint missing args_snapshot: {self._path}")
+        if not isinstance(ckpt, dict):
+            raise ValueError(f"heteronym checkpoint must be a dict or state_dict: {self._path}")
+        snap, state_dict = _resolve_snap_and_state_dict(self._path, ckpt)
 
         self._max_seq_len = int(snap["max_seq_len"])
         if int(snap["max_candidates"]) != self._max_candidates:
@@ -79,7 +142,7 @@ class HeteronymDisambiguator:
             max_candidates=self._max_candidates,
             dropout=float(snap["dropout"]),
         )
-        self._model.load_state_dict(ckpt["model"])
+        self._model.load_state_dict(state_dict)
         self._model.to(self._device)
         self._model.eval()
 

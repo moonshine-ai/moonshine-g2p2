@@ -12,8 +12,13 @@ Each epoch writes ``checkpoint.pt`` under ``--out`` (model, optimizer, progress)
 With ``--resume``, training continues from ``checkpoint.pt`` under ``--out``;
 ``--epochs`` is the total number of epochs to run (including those already finished).
 
+Unless ``--valid-json`` is set, the train corpus is split into train/validation
+by ``--valid-fraction`` (per ``(homograph, homograph_wordid)`` group, seeded with
+``--seed``) so labels in dev always exist in the training index.
+
 Data files are fetched from the Hugging Face dataset repo via huggingface_hub
-(see flexthink/librig2p-nostress-space ``dataset/homograph_*.json``).
+(see flexthink/librig2p-nostress-space ``dataset/homograph_*.json``) when
+``--train-json`` is omitted.
 
 Training defaults: random context windows / left-padding, safe surface noise
 outside the homograph span, and inverse-frequency balancing over
@@ -26,14 +31,17 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import sys
+from collections import defaultdict
 from pathlib import Path
 
 import torch
 from torch.optim import AdamW
 
 from heteronym.librig2p import (
-    CharVocab,
+    HomographRecord,
+    build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
     download_librig2p_homograph_split,
     iter_encoded_batches,
@@ -65,6 +73,7 @@ _CKPT_ARG_KEYS = (
     "surface_noise_prob",
     "train_json",
     "valid_json",
+    "valid_fraction",
 )
 
 
@@ -83,7 +92,15 @@ def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace
     if not isinstance(saved, dict):
         raise SystemExit("Checkpoint is missing args_snapshot (cannot --resume).")
     cur = _args_snapshot(args)
-    mismatches = [k for k in _CKPT_ARG_KEYS if saved.get(k) != cur.get(k)]
+    mismatches: list[str] = []
+    for k in _CKPT_ARG_KEYS:
+        s, c = saved.get(k), cur.get(k)
+        if s == c:
+            continue
+        # Checkpoints from before valid_fraction was tracked
+        if k == "valid_fraction" and s is None:
+            continue
+        mismatches.append(k)
     if mismatches:
         raise SystemExit(
             "Refusing to resume: the following flags differ from the checkpoint "
@@ -138,10 +155,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--max-seq-len", type=int, default=384)
     p.add_argument("--max-candidates", type=int, default=4)
-    p.add_argument("--d-model", type=int, default=64)
+    p.add_argument("--d-model", type=int, default=256)
     p.add_argument("--n-heads", type=int, default=4)
-    p.add_argument("--n-layers", type=int, default=1)
-    p.add_argument("--ffn-dim", type=int, default=128)
+    p.add_argument("--n-layers", type=int, default=4)
+    p.add_argument("--ffn-dim", type=int, default=512)
     p.add_argument("--dropout", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--device", type=str, default="cpu")
@@ -151,7 +168,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         help="override path to homograph_train.json",
     )
-    p.add_argument("--valid-json", type=Path, default=None)
+    p.add_argument(
+        "--valid-json",
+        type=Path,
+        default=None,
+        help="optional separate validation JSON; if omitted, --valid-fraction is held out "
+        "from the train corpus (same labeling scheme)",
+    )
     p.add_argument("--group-key", choices=("lower", "exact"), default="lower")
     p.add_argument(
         "--no-train-augment",
@@ -197,7 +220,54 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         help="W&B entity (team or username; optional, defaults from wandb settings)",
     )
+    p.add_argument(
+        "--valid-fraction",
+        type=float,
+        default=0.1,
+        metavar="F",
+        help="when --valid-json is omitted: fraction of each (homograph, wordid) group "
+        "held out for validation (deterministic given --seed)",
+    )
     return p.parse_args(argv)
+
+
+def _group_homograph(r: HomographRecord, group_key: str) -> str:
+    return r.homograph.lower() if group_key == "lower" else r.homograph
+
+
+def _split_train_valid(
+    records: list[HomographRecord],
+    *,
+    group_key: str,
+    valid_fraction: float,
+    seed: int,
+) -> tuple[list[HomographRecord], list[HomographRecord]]:
+    """
+    Stratify by (homograph key, homograph_wordid): each multi-example group keeps at
+    least one row in train so the dev labels still appear in the training index.
+    """
+    if not (0.0 < valid_fraction < 1.0):
+        raise SystemExit("--valid-fraction must be strictly between 0 and 1.")
+    rng = random.Random(seed)
+    by_kw: dict[tuple[str, str], list[HomographRecord]] = defaultdict(list)
+    for r in records:
+        g = _group_homograph(r, group_key)
+        by_kw[(g, r.homograph_wordid)].append(r)
+    train_out: list[HomographRecord] = []
+    valid_out: list[HomographRecord] = []
+    for recs in by_kw.values():
+        rng.shuffle(recs)
+        n = len(recs)
+        if n <= 1:
+            train_out.extend(recs)
+            continue
+        n_val = max(1, int(round(n * valid_fraction)))
+        n_val = min(n_val, n - 1)
+        valid_out.extend(recs[:n_val])
+        train_out.extend(recs[n_val:])
+    rng.shuffle(train_out)
+    rng.shuffle(valid_out)
+    return train_out, valid_out
 
 
 def _evaluate(
@@ -255,12 +325,32 @@ def main(argv: list[str] | None = None) -> None:
     train_path = args.train_json
     if train_path is None:
         train_path = download_librig2p_homograph_split("train")
-    valid_path = args.valid_json
-    if valid_path is None:
-        valid_path = download_librig2p_homograph_split("valid")
 
-    train_recs = load_homograph_json(train_path)
-    valid_recs = load_homograph_json(valid_path)
+    corpus = load_homograph_json(train_path)
+    if args.valid_json is None:
+        train_recs, valid_recs = _split_train_valid(
+            corpus,
+            group_key=args.group_key,
+            valid_fraction=args.valid_fraction,
+            seed=args.seed,
+        )
+        logger.info(
+            "auto-split train data: %d train / %d valid (fraction=%.4f, seed=%d)",
+            len(train_recs),
+            len(valid_recs),
+            args.valid_fraction,
+            args.seed,
+        )
+        if not valid_recs:
+            raise SystemExit(
+                "Auto-split produced an empty validation set: every "
+                "(homograph, homograph_wordid) group has only one example. "
+                "Add more data per label, set a separate --valid-json, or lower "
+                "the bar by merging duplicates (not supported here)."
+            )
+    else:
+        train_recs = corpus
+        valid_recs = load_homograph_json(args.valid_json)
 
     if args.resume:
         char_vocab, ordered, label_maps, mc, gk = load_training_artifacts(out)
@@ -277,7 +367,7 @@ def main(argv: list[str] | None = None) -> None:
             group_key=args.group_key,
         )
         extra = ".,;:'\"-" if not args.no_train_augment else None
-        char_vocab = CharVocab.from_records(train_recs, extra_chars=extra)
+        char_vocab = build_char_vocab_from_homograph_records(train_recs, extra_chars=extra)
         with (out / "train_config.json").open("w", encoding="utf-8") as f:
             json.dump(vars(args), f, default=str, indent=2)
 
@@ -299,6 +389,15 @@ def main(argv: list[str] | None = None) -> None:
         return kept
 
     valid_recs = _filter_dev(valid_recs)
+    if not valid_recs:
+        raise SystemExit(
+            "Validation is empty after filtering: no rows share both `homograph` and "
+            "`homograph_wordid` with the candidate index built from training data. "
+            "Common cause: `--train-json` uses IPA-style word ids (e.g. from eSpeak) while "
+            "`--valid-json` uses LibriG2P-style ids (`*_noun`, `*_vrb`, …) — they never "
+            "match. Use a validation file with the same labeling scheme as training, split "
+            "held-out examples from the train file, or point both splits at LibriG2P JSON."
+        )
 
     model = TinyHeteronymTransformer(
         vocab_size=len(char_vocab),
@@ -318,7 +417,7 @@ def main(argv: list[str] | None = None) -> None:
             out, model=model, optimizer=opt, device=device, args=args
         )
     else:
-        start_epoch, best_acc = 0, 1000.0
+        start_epoch, best_acc = 0, -1.0
 
     if start_epoch >= args.epochs:
         logger.info(
@@ -445,8 +544,9 @@ def _train_loop(
             mean_loss,
             acc,
         )
-        best_acc = acc
-        torch.save(model.state_dict(), out / "model.pt")
+        if acc > best_acc:
+            best_acc = acc
+            torch.save(model.state_dict(), out / "model.pt")
         save_training_artifacts(
             out,
             char_vocab=char_vocab,

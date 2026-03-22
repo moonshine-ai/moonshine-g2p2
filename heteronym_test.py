@@ -10,12 +10,12 @@ from pathlib import Path
 import torch
 
 import train_heteronym
+from g2p_common import inference_context_window
 from heteronym.librig2p import (
-    CharVocab,
     HomographRecord,
     apply_train_augmentation,
+    build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
-    inference_context_window,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
@@ -59,7 +59,7 @@ def test_load_and_tables() -> None:
 def test_model_and_loss() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
-    vocab = CharVocab.from_records(recs)
+    vocab = build_char_vocab_from_homograph_records(recs)
     model = TinyHeteronymTransformer(
         vocab_size=len(vocab),
         max_seq_len=64,
@@ -95,7 +95,7 @@ def test_model_and_loss() -> None:
 def test_save_load_artifacts() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
-    vocab = CharVocab.from_records(recs)
+    vocab = build_char_vocab_from_homograph_records(recs)
     with tempfile.TemporaryDirectory() as d:
         save_training_artifacts(
             d,
@@ -117,7 +117,7 @@ def test_augment_preserves_homograph_slice() -> None:
     text = "AA BB READ CC DD EE FF"
     s, e = text.index("READ"), text.index("READ") + 4
     r = HomographRecord(text, "read", "read_x", s, e)
-    vocab = CharVocab.from_records([r], extra_chars=".,;")
+    vocab = build_char_vocab_from_homograph_records([r], extra_chars=".,;")
     ref = text[s:e]
     for seed in range(400):
         rng = random.Random(seed)
@@ -167,7 +167,7 @@ def test_balance_training_oversamples_rare_wordid() -> None:
         recs.append(HomographRecord("X READ Y", "read", "read_common", 2, 6))
     recs.append(HomographRecord("X READ Y", "read", "read_rare", 2, 6))
     ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
-    vocab = CharVocab.from_records(recs)
+    vocab = build_char_vocab_from_homograph_records(recs)
     rare_label = label_maps["read"]["read_rare"]
     ys: list[int] = []
     for b in iter_encoded_batches(
