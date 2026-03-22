@@ -15,7 +15,7 @@ if str(_REPO_ROOT) not in sys.path:
 import torch
 
 from g2p_common import SPECIAL_PAD, inference_context_window
-from heteronym.librig2p import load_training_artifacts
+from heteronym.librig2p import encode_ipa_candidate_slots, load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
 
 
@@ -27,6 +27,7 @@ def _snap_from_train_config(cfg: dict[str, Any]) -> dict[str, object]:
     return {
         "max_seq_len": int(cfg["max_seq_len"]),
         "max_candidates": int(cfg["max_candidates"]),
+        "max_ipa_len": int(cfg.get("max_ipa_len", 64)),
         "group_key": str(cfg["group_key"]),
         "d_model": int(cfg["d_model"]),
         "n_heads": int(cfg["n_heads"]),
@@ -79,6 +80,8 @@ def _resolve_snap_and_state_dict(path: Path, ckpt: dict[str, Any]) -> tuple[dict
             f"checkpoint missing args_snapshot: {path}. Use checkpoint.pt, or keep "
             f"train_config.json (or checkpoint.pt) in the same directory as model.pt."
         )
+    if isinstance(snap, dict) and "max_ipa_len" not in snap:
+        snap = {**snap, "max_ipa_len": 64}
     return snap, state
 
 
@@ -101,7 +104,8 @@ def match_prediction_to_cmudict_ipa(predicted: str, alts: list[str]) -> str | No
 class HeteronymDisambiguator:
     """
     Loads ``checkpoint.pt`` (full training checkpoint) and sibling
-    ``char_vocab.json`` / ``homograph_index.json`` from the same directory.
+    ``char_vocab.json``, ``ipa_char_vocab.json``, and ``homograph_index.json``
+    from the same directory.
     """
 
     def __init__(self, checkpoint_path: Path | str, *, device: str | None = None) -> None:
@@ -109,15 +113,22 @@ class HeteronymDisambiguator:
         if not self._path.is_file():
             raise FileNotFoundError(f"heteronym checkpoint not found: {self._path}")
         artifacts_dir = self._path.parent
-        self._char_vocab, self._ordered, self._label_maps, self._max_candidates, self._group_key = (
-            load_training_artifacts(artifacts_dir)
-        )
+        (
+            self._char_vocab,
+            self._ipa_char_vocab,
+            self._ordered,
+            self._ordered_ipa,
+            self._label_maps,
+            self._max_candidates,
+            self._group_key,
+        ) = load_training_artifacts(artifacts_dir)
         ckpt = torch.load(self._path, map_location="cpu", weights_only=False)
         if not isinstance(ckpt, dict):
             raise ValueError(f"heteronym checkpoint must be a dict or state_dict: {self._path}")
         snap, state_dict = _resolve_snap_and_state_dict(self._path, ckpt)
 
         self._max_seq_len = int(snap["max_seq_len"])
+        self._max_ipa_len = int(snap.get("max_ipa_len", 64))
         if int(snap["max_candidates"]) != self._max_candidates:
             raise ValueError(
                 "checkpoint max_candidates does not match homograph_index.json "
@@ -135,6 +146,8 @@ class HeteronymDisambiguator:
         self._model = TinyHeteronymTransformer(
             vocab_size=len(self._char_vocab),
             max_seq_len=self._max_seq_len,
+            ipa_vocab_size=len(self._ipa_char_vocab),
+            max_ipa_len=self._max_ipa_len,
             d_model=int(snap["d_model"]),
             n_heads=int(snap["n_heads"]),
             n_layers=int(snap["n_layers"]),
@@ -194,13 +207,28 @@ class HeteronymDisambiguator:
             return cmudict_alternatives[0]
 
         cands = self._ordered[gkey]
+        ipa_slots = self._ordered_ipa[gkey]
         cm = [True] * len(cands) + [False] * (self._max_candidates - len(cands))
+        ipa_ids, ipa_m = encode_ipa_candidate_slots(
+            self._ipa_char_vocab,
+            ipa_slots,
+            max_candidates=self._max_candidates,
+            max_ipa_len=self._max_ipa_len,
+        )
 
         with torch.no_grad():
             input_ids = torch.tensor([ids], dtype=torch.long, device=self._device)
             attention_mask = torch.tensor([attn], dtype=torch.bool, device=self._device)
             span_mask = torch.tensor([span], dtype=torch.float32, device=self._device)
-            logits = self._model(input_ids, attention_mask, span_mask)
+            ipa_input_ids = torch.tensor([ipa_ids], dtype=torch.long, device=self._device)
+            ipa_attention_mask = torch.tensor([ipa_m], dtype=torch.bool, device=self._device)
+            logits = self._model(
+                input_ids,
+                attention_mask,
+                span_mask,
+                ipa_input_ids,
+                ipa_attention_mask,
+            )
             neg_inf = torch.finfo(logits.dtype).min / 4
             cm_t = torch.tensor([cm], dtype=torch.bool, device=self._device)
             masked = logits.masked_fill(~cm_t, neg_inf)

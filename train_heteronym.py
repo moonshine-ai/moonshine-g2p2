@@ -43,10 +43,12 @@ from heteronym.librig2p import (
     HomographRecord,
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
+    build_ipa_char_vocab_from_ordered_ipa,
     download_librig2p_homograph_split,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
+    max_encoded_ipa_len,
     save_training_artifacts,
 )
 from heteronym.model import TinyHeteronymTransformer, masked_candidate_loss
@@ -60,6 +62,7 @@ CHECKPOINT_NAME = "checkpoint.pt"
 _CKPT_ARG_KEYS = (
     "max_seq_len",
     "max_candidates",
+    "max_ipa_len",
     "group_key",
     "d_model",
     "n_heads",
@@ -155,6 +158,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--weight-decay", type=float, default=0.01)
     p.add_argument("--max-seq-len", type=int, default=384)
     p.add_argument("--max-candidates", type=int, default=4)
+    p.add_argument(
+        "--max-ipa-len",
+        type=int,
+        default=64,
+        help="max IPA characters per candidate (sequences are truncated; positions are padded)",
+    )
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--n-heads", type=int, default=4)
     p.add_argument("--n-layers", type=int, default=2)
@@ -275,11 +284,14 @@ def _evaluate(
     records,
     *,
     char_vocab,
+    ipa_char_vocab,
     ordered,
+    ordered_ipa,
     label_maps,
     group_key: str,
     max_seq_len: int,
     max_candidates: int,
+    max_ipa_len: int,
     batch_size: int,
     device: torch.device,
 ) -> float:
@@ -290,11 +302,14 @@ def _evaluate(
         for batch in iter_encoded_batches(
             records,
             char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
             ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=group_key,
             max_seq_len=max_seq_len,
             max_candidates=max_candidates,
+            max_ipa_len=max_ipa_len,
             batch_size=batch_size,
             shuffle=False,
             seed=0,
@@ -303,6 +318,8 @@ def _evaluate(
                 batch["input_ids"].to(device),
                 batch["attention_mask"].to(device),
                 batch["span_mask"].to(device),
+                batch["ipa_input_ids"].to(device),
+                batch["ipa_attention_mask"].to(device),
             )
             neg_inf = torch.finfo(logits.dtype).min / 4
             masked = logits.masked_fill(~batch["candidate_mask"].to(device), neg_inf)
@@ -353,7 +370,7 @@ def main(argv: list[str] | None = None) -> None:
         valid_recs = load_homograph_json(args.valid_json)
 
     if args.resume:
-        char_vocab, ordered, label_maps, mc, gk = load_training_artifacts(out)
+        char_vocab, ipa_char_vocab, ordered, ordered_ipa, label_maps, mc, gk = load_training_artifacts(out)
         if mc != args.max_candidates or gk != args.group_key:
             raise SystemExit(
                 "Refusing to resume: --max-candidates / --group-key must match "
@@ -361,13 +378,15 @@ def main(argv: list[str] | None = None) -> None:
                 f"group_key={args.group_key!r}; saved max_candidates={mc}, group_key={gk!r})."
             )
     else:
-        ordered, label_maps = build_homograph_candidate_tables(
+        ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(
             train_recs,
             max_candidates=args.max_candidates,
             group_key=args.group_key,
         )
         extra = ".,;:'\"-" if not args.no_train_augment else None
         char_vocab = build_char_vocab_from_homograph_records(train_recs, extra_chars=extra)
+        ipa_extra = "ˈˌː̩̯̃͡↓ " if not args.no_train_augment else None
+        ipa_char_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa, extra_chars=ipa_extra)
         with (out / "train_config.json").open("w", encoding="utf-8") as f:
             json.dump(vars(args), f, default=str, indent=2)
 
@@ -399,9 +418,20 @@ def main(argv: list[str] | None = None) -> None:
             "held-out examples from the train file, or point both splits at LibriG2P JSON."
         )
 
+    need_ipa = max_encoded_ipa_len(ordered_ipa, ipa_char_vocab, cap=10**9)
+    if need_ipa > args.max_ipa_len:
+        logger.warning(
+            "longest IPA encoding in the train index is %d chars; "
+            "--max-ipa-len=%d will truncate some candidates",
+            need_ipa,
+            args.max_ipa_len,
+        )
+
     model = TinyHeteronymTransformer(
         vocab_size=len(char_vocab),
         max_seq_len=args.max_seq_len,
+        ipa_vocab_size=len(ipa_char_vocab),
+        max_ipa_len=args.max_ipa_len,
         d_model=args.d_model,
         n_heads=args.n_heads,
         n_layers=args.n_layers,
@@ -457,7 +487,9 @@ def main(argv: list[str] | None = None) -> None:
             train_recs=train_recs,
             valid_recs=valid_recs,
             char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
             ordered=ordered,
+            ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             start_epoch=start_epoch,
             best_acc=best_acc,
@@ -484,7 +516,9 @@ def _train_loop(
     train_recs,
     valid_recs,
     char_vocab,
+    ipa_char_vocab,
     ordered,
+    ordered_ipa,
     label_maps,
     start_epoch: int,
     best_acc: float,
@@ -498,11 +532,14 @@ def _train_loop(
         for batch in iter_encoded_batches(
             train_recs,
             char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
             ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=args.group_key,
             max_seq_len=args.max_seq_len,
             max_candidates=args.max_candidates,
+            max_ipa_len=args.max_ipa_len,
             batch_size=args.batch_size,
             shuffle=True,
             seed=args.seed + epoch,
@@ -515,6 +552,8 @@ def _train_loop(
                 batch["input_ids"].to(device),
                 batch["attention_mask"].to(device),
                 batch["span_mask"].to(device),
+                batch["ipa_input_ids"].to(device),
+                batch["ipa_attention_mask"].to(device),
             )
             loss = masked_candidate_loss(
                 logits,
@@ -529,11 +568,14 @@ def _train_loop(
             model,
             valid_recs,
             char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
             ordered=ordered,
+            ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=args.group_key,
             max_seq_len=args.max_seq_len,
             max_candidates=args.max_candidates,
+            max_ipa_len=args.max_ipa_len,
             batch_size=args.batch_size,
             device=device,
         )
@@ -550,7 +592,9 @@ def _train_loop(
         save_training_artifacts(
             out,
             char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
             ordered_candidates=ordered,
+            ordered_candidate_ipa=ordered_ipa,
             label_maps=label_maps,
             max_candidates=args.max_candidates,
             group_key=args.group_key,

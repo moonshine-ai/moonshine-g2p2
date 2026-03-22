@@ -44,6 +44,10 @@ class HomographRecord:
     homograph_wordid: str
     homograph_char_start: int
     homograph_char_end: int
+    # Optional IPA string for this label (LibriG2P-style abstract wordids).
+    # When omitted, the pronunciation text for modeling is ``homograph_wordid``
+    # (eSpeak-style corpora store IPA there).
+    homograph_wordid_ipa: str | None = None
 
 
 def load_homograph_json(path: Path | str) -> list[HomographRecord]:
@@ -52,6 +56,10 @@ def load_homograph_json(path: Path | str) -> list[HomographRecord]:
         blob: dict[str, Any] = json.load(f)
     out: list[HomographRecord] = []
     for _sid, row in blob.items():
+        ipa_opt = row.get("homograph_wordid_ipa")
+        ipa_str = str(ipa_opt).strip() if ipa_opt is not None else None
+        if ipa_str == "":
+            ipa_str = None
         out.append(
             HomographRecord(
                 char_text=row["char"],
@@ -59,6 +67,7 @@ def load_homograph_json(path: Path | str) -> list[HomographRecord]:
                 homograph_wordid=row["homograph_wordid"],
                 homograph_char_start=int(row["homograph_char_start"]),
                 homograph_char_end=int(row["homograph_char_end"]),
+                homograph_wordid_ipa=ipa_str,
             )
         )
     return out
@@ -88,27 +97,55 @@ def download_librig2p_homograph_split(
     )
 
 
+def _wordid_to_ipa_map(records: list[HomographRecord], *, group_key: str) -> dict[tuple[str, str], str]:
+    """
+    Map (homograph_group_key, homograph_wordid) -> IPA (or pronunciation) string.
+
+    If ``homograph_wordid_ipa`` is set on any row, all rows for that pair must agree.
+    Otherwise the IPA text defaults to ``homograph_wordid`` (eSpeak / IPA-as-id corpora).
+    """
+    out: dict[tuple[str, str], str] = {}
+    for r in records:
+        g = _group_key_for_record(r, group_key)
+        wid = r.homograph_wordid
+        ipa = (r.homograph_wordid_ipa or wid).strip()
+        k = (g, wid)
+        prev = out.get(k)
+        if prev is not None and prev != ipa:
+            raise ValueError(
+                f"Inconsistent homograph_wordid_ipa for homograph={g!r} wordid={wid!r}: "
+                f"{prev!r} vs {ipa!r}"
+            )
+        out[k] = ipa
+    return out
+
+
 def build_homograph_candidate_tables(
     records: list[HomographRecord],
     *,
     max_candidates: int,
     group_key: str = "lower",
-) -> tuple[dict[str, list[str]], dict[str, dict[str, int]]]:
+) -> tuple[dict[str, list[str]], dict[str, dict[str, int]], dict[str, list[str]]]:
     """
     For each surface homograph key, collect sorted unique `homograph_wordid`
     strings and map each id to a class index in 0..K-1.
+
+    Also returns ``ordered_ipa``: for each key, parallel list of IPA (phoneme)
+    strings in candidate index order (same slots as ``ordered``).
 
     group_key
         ``lower`` — fold homograph string with ``str.lower()`` for grouping
         (recommended for LibriG2P uppercase sentences).
         ``exact`` — use homograph field verbatim.
     """
+    wid_ipa = _wordid_to_ipa_map(records, group_key=group_key)
     groups: dict[str, set[str]] = {}
     for r in records:
         key = r.homograph.lower() if group_key == "lower" else r.homograph
         groups.setdefault(key, set()).add(r.homograph_wordid)
 
     ordered: dict[str, list[str]] = {}
+    ordered_ipa: dict[str, list[str]] = {}
     label_maps: dict[str, dict[str, int]] = {}
     for key, ids in groups.items():
         lst = sorted(ids)
@@ -118,15 +155,18 @@ def build_homograph_candidate_tables(
                 f"(> max_candidates={max_candidates}): {lst}"
             )
         ordered[key] = lst
+        ordered_ipa[key] = [wid_ipa[(key, w)] for w in lst]
         label_maps[key] = {wid: i for i, wid in enumerate(lst)}
-    return ordered, label_maps
+    return ordered, label_maps, ordered_ipa
 
 
 def save_training_artifacts(
     out_dir: Path | str,
     *,
     char_vocab: CharVocab,
+    ipa_char_vocab: CharVocab,
     ordered_candidates: dict[str, list[str]],
+    ordered_candidate_ipa: dict[str, list[str]],
     label_maps: dict[str, dict[str, int]],
     max_candidates: int,
     group_key: str,
@@ -136,10 +176,13 @@ def save_training_artifacts(
     out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "char_vocab.json").open("w", encoding="utf-8") as f:
         json.dump(char_vocab.stoi, f, ensure_ascii=False, indent=2)
+    with (out_dir / "ipa_char_vocab.json").open("w", encoding="utf-8") as f:
+        json.dump(ipa_char_vocab.stoi, f, ensure_ascii=False, indent=2)
     payload = {
         "max_candidates": max_candidates,
         "group_key": group_key,
         "ordered_candidates": ordered_candidates,
+        "ordered_candidate_ipa": ordered_candidate_ipa,
         "label_maps": label_maps,
     }
     with (out_dir / "homograph_index.json").open("w", encoding="utf-8") as f:
@@ -161,16 +204,63 @@ def build_char_vocab_from_homograph_records(
     return CharVocab(sorted(seen))
 
 
-def load_training_artifacts(dir_path: Path | str) -> tuple[CharVocab, dict[str, list[str]], dict[str, dict[str, int]], int, str]:
+def build_ipa_char_vocab_from_ordered_ipa(
+    ordered_ipa: dict[str, list[str]],
+    *,
+    extra_chars: str | None = None,
+) -> CharVocab:
+    """Character vocabulary for IPA strings (per-candidate pronunciation text)."""
+    seen: set[str] = set()
+    for lst in ordered_ipa.values():
+        for s in lst:
+            for ch in s:
+                seen.add(ch)
+    if extra_chars:
+        seen.update(extra_chars)
+    return CharVocab(sorted(seen))
+
+
+def max_encoded_ipa_len(
+    ordered_ipa: dict[str, list[str]],
+    ipa_char_vocab: CharVocab,
+    *,
+    cap: int,
+) -> int:
+    """Longest IPA encoding length in the index, capped (at least 1)."""
+    m = 1
+    for lst in ordered_ipa.values():
+        for s in lst:
+            m = max(m, len(ipa_char_vocab.encode(s)))
+    return min(max(m, 1), cap)
+
+
+def load_training_artifacts(
+    dir_path: Path | str,
+) -> tuple[CharVocab, CharVocab, dict[str, list[str]], dict[str, list[str]], dict[str, dict[str, int]], int, str]:
     dir_path = Path(dir_path)
     with (dir_path / "char_vocab.json").open(encoding="utf-8") as f:
         stoi: dict[str, int] = json.load(f)
     cv = CharVocab.from_stoi(stoi)
+    ipa_path = dir_path / "ipa_char_vocab.json"
+    if not ipa_path.is_file():
+        raise FileNotFoundError(
+            f"{ipa_path} not found (required for heteronym IPA conditioning; "
+            "re-save artifacts with save_training_artifacts or retrain)."
+        )
+    with ipa_path.open(encoding="utf-8") as f:
+        ipa_stoi: dict[str, int] = json.load(f)
+    ipa_cv = CharVocab.from_stoi(ipa_stoi)
     with (dir_path / "homograph_index.json").open(encoding="utf-8") as f:
         payload = json.load(f)
+    ordered = payload["ordered_candidates"]
+    oci = payload.get("ordered_candidate_ipa")
+    if not isinstance(oci, dict):
+        oci = {k: [ordered[k][i] for i in range(len(ordered[k]))] for k in ordered}
     return (
         cv,
-        payload["ordered_candidates"],
+        ipa_cv,
+        ordered,
+        oci,
         payload["label_maps"],
         int(payload["max_candidates"]),
         str(payload["group_key"]),
@@ -346,21 +436,51 @@ def _training_index_order(
     return idx
 
 
+def encode_ipa_candidate_slots(
+    ipa_char_vocab: CharVocab,
+    ipa_per_slot: list[str],
+    *,
+    max_candidates: int,
+    max_ipa_len: int,
+) -> tuple[list[list[int]], list[list[bool]]]:
+    """
+    Encode parallel IPA strings for each candidate index (length ``max_candidates``).
+
+    Invalid / padding candidate indices use an all-pad sequence with mask False.
+    """
+    pad_id = ipa_char_vocab.stoi[SPECIAL_PAD]
+    ids: list[list[int]] = []
+    attn: list[list[bool]] = []
+    for k in range(max_candidates):
+        if k < len(ipa_per_slot):
+            raw = ipa_char_vocab.encode(ipa_per_slot[k])[:max_ipa_len]
+        else:
+            raw = []
+        row = raw + [pad_id] * (max_ipa_len - len(raw))
+        ids.append(row[:max_ipa_len])
+        attn.append([j < len(raw) for j in range(max_ipa_len)])
+    return ids, attn
+
+
 def iter_encoded_batches(
     records: list[HomographRecord],
     *,
     char_vocab: CharVocab,
+    ipa_char_vocab: CharVocab,
     ordered_candidates: dict[str, list[str]],
+    ordered_ipa: dict[str, list[str]],
     label_maps: dict[str, dict[str, int]],
     group_key: str,
     max_seq_len: int,
     max_candidates: int,
+    max_ipa_len: int,
     batch_size: int,
     shuffle: bool,
     seed: int,
     train_augment: bool = False,
     balance_training: bool = False,
     surface_noise_prob: float = 0.3,
+    include_group_keys: bool = False,
 ) -> Iterator[dict[str, Any]]:
     rng = random.Random(seed)
     train_augment = bool(train_augment and shuffle)
@@ -378,6 +498,9 @@ def iter_encoded_batches(
     batch_span: list[list[float]] = []
     batch_cm: list[list[bool]] = []
     batch_y: list[int] = []
+    batch_ipa: list[list[list[int]]] = []
+    batch_ipa_attn: list[list[list[bool]]] = []
+    batch_gkeys: list[str] = []
 
     def flush() -> dict[str, Any] | None:
         if not batch_y:
@@ -404,13 +527,20 @@ def iter_encoded_batches(
             "input_ids": torch.tensor(ids, dtype=torch.long),
             "attention_mask": torch.tensor(mask, dtype=torch.bool),
             "span_mask": torch.tensor(span, dtype=torch.float32),
+            "ipa_input_ids": torch.tensor(batch_ipa, dtype=torch.long),
+            "ipa_attention_mask": torch.tensor(batch_ipa_attn, dtype=torch.bool),
             "candidate_mask": torch.tensor(cm, dtype=torch.bool),
             "labels": torch.tensor(batch_y, dtype=torch.long),
         }
+        if include_group_keys:
+            out["group_keys"] = list(batch_gkeys)
         batch_ids.clear()
         batch_span.clear()
         batch_cm.clear()
         batch_y.clear()
+        batch_ipa.clear()
+        batch_ipa_attn.clear()
+        batch_gkeys.clear()
         return out
 
     for i in idx:
@@ -458,11 +588,22 @@ def iter_encoded_batches(
             # logger.warning("skip row: homograph span outside truncated window for %s", gkey)
             continue
         cands = ordered_candidates[gkey]
+        ipa_slots = ordered_ipa[gkey]
         cm = [True] * len(cands) + [False] * (max_candidates - len(cands))
+        ipa_ids, ipa_m = encode_ipa_candidate_slots(
+            ipa_char_vocab,
+            ipa_slots,
+            max_candidates=max_candidates,
+            max_ipa_len=max_ipa_len,
+        )
         batch_ids.append(ids)
         batch_span.append(span)
         batch_cm.append(cm)
         batch_y.append(y)
+        batch_ipa.append(ipa_ids)
+        batch_ipa_attn.append(ipa_m)
+        if include_group_keys:
+            batch_gkeys.append(gkey)
         if len(batch_y) >= batch_size:
             b = flush()
             if b is not None:

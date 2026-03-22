@@ -16,6 +16,7 @@ from heteronym.librig2p import (
     apply_train_augmentation,
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
+    build_ipa_char_vocab_from_ordered_ipa,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
@@ -51,18 +52,22 @@ def _tiny_json_path() -> Path:
 def test_load_and_tables() -> None:
     recs = load_homograph_json(_tiny_json_path())
     assert len(recs) == 2
-    ordered, maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    ordered, maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     assert ordered["read"] == ["read_pst", "read_vrb"]
+    assert ordered_ipa["read"] == ["read_pst", "read_vrb"]
     assert maps["read"]["read_vrb"] in (0, 1)
 
 
 def test_model_and_loss() -> None:
     recs = load_homograph_json(_tiny_json_path())
-    ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
+    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
     model = TinyHeteronymTransformer(
         vocab_size=len(vocab),
         max_seq_len=64,
+        ipa_vocab_size=len(ipa_vocab),
+        max_ipa_len=32,
         d_model=64,
         n_heads=4,
         n_layers=2,
@@ -73,11 +78,14 @@ def test_model_and_loss() -> None:
         iter_encoded_batches(
             recs,
             char_vocab=vocab,
+            ipa_char_vocab=ipa_vocab,
             ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key="lower",
             max_seq_len=64,
             max_candidates=4,
+            max_ipa_len=32,
             batch_size=8,
             shuffle=False,
             seed=0,
@@ -85,7 +93,13 @@ def test_model_and_loss() -> None:
     )
     assert batches
     b = batches[0]
-    logits = model(b["input_ids"], b["attention_mask"], b["span_mask"])
+    logits = model(
+        b["input_ids"],
+        b["attention_mask"],
+        b["span_mask"],
+        b["ipa_input_ids"],
+        b["ipa_attention_mask"],
+    )
     assert logits.shape == (b["labels"].shape[0], 4)
     loss = masked_candidate_loss(logits, b["labels"], b["candidate_mask"])
     assert loss.ndim == 0
@@ -94,20 +108,25 @@ def test_model_and_loss() -> None:
 
 def test_save_load_artifacts() -> None:
     recs = load_homograph_json(_tiny_json_path())
-    ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
+    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
     with tempfile.TemporaryDirectory() as d:
         save_training_artifacts(
             d,
             char_vocab=vocab,
+            ipa_char_vocab=ipa_vocab,
             ordered_candidates=ordered,
+            ordered_candidate_ipa=ordered_ipa,
             label_maps=label_maps,
             max_candidates=4,
             group_key="lower",
         )
-        v2, o2, m2, k, gk = load_training_artifacts(d)
+        v2, iv2, o2, oi2, m2, k, gk = load_training_artifacts(d)
         assert len(v2) == len(vocab)
+        assert len(iv2) == len(ipa_vocab)
         assert o2 == ordered
+        assert oi2 == ordered_ipa
         assert m2 == label_maps
         assert k == 4
         assert gk == "lower"
@@ -161,23 +180,54 @@ def test_random_crop_keeps_span_in_window() -> None:
         assert t2[s2:e2] == "READ"
 
 
+def test_iter_encoded_batches_includes_group_keys_when_asked() -> None:
+    recs = load_homograph_json(_tiny_json_path())
+    ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    vocab = build_char_vocab_from_homograph_records(recs)
+    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
+    batches = list(
+        iter_encoded_batches(
+            recs,
+            char_vocab=vocab,
+            ipa_char_vocab=ipa_vocab,
+            ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
+            label_maps=label_maps,
+            group_key="lower",
+            max_seq_len=64,
+            max_candidates=4,
+            max_ipa_len=32,
+            batch_size=8,
+            shuffle=False,
+            seed=0,
+            include_group_keys=True,
+        )
+    )
+    assert batches
+    assert batches[0]["group_keys"] == ["read", "read"]
+
+
 def test_balance_training_oversamples_rare_wordid() -> None:
     recs: list[HomographRecord] = []
     for _ in range(9):
         recs.append(HomographRecord("X READ Y", "read", "read_common", 2, 6))
     recs.append(HomographRecord("X READ Y", "read", "read_rare", 2, 6))
-    ordered, label_maps = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
+    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
     rare_label = label_maps["read"]["read_rare"]
     ys: list[int] = []
     for b in iter_encoded_batches(
         recs,
         char_vocab=vocab,
+        ipa_char_vocab=ipa_vocab,
         ordered_candidates=ordered,
+        ordered_ipa=ordered_ipa,
         label_maps=label_maps,
         group_key="lower",
         max_seq_len=64,
         max_candidates=4,
+        max_ipa_len=32,
         batch_size=1,
         shuffle=True,
         seed=123,
