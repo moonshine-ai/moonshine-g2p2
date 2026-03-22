@@ -1,4 +1,4 @@
-"""Recover eSpeak IPA phone tokens for a character span (full vs removed text)."""
+"""Recover eSpeak IPA for a character span via full vs removed text (word-level chunks)."""
 
 from __future__ import annotations
 
@@ -21,8 +21,9 @@ def extract_span_espeak_phonemes(
     char_end: int,
 ) -> list[str] | None:
     """
-    Tokenize *text* with eSpeak; remove ``text[char_start:char_end]`` and diff
-    token lists to find inserted phone block. Returns ``None`` on failure.
+    Tokenize *text* with eSpeak (word-level IPA, no spaces within words); remove
+    ``text[char_start:char_end]`` and diff token lists to find the inserted chunk.
+    Returns ``None`` on failure.
     """
     if char_start < 0 or char_end <= char_start or char_end > len(text):
         return None

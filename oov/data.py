@@ -2,7 +2,8 @@
 Load OOV G2P JSON, char / phoneme vocabularies, and training batches.
 
 Each record is a **word-only** grapheme string (slice via ``word_char_start``/``end``
-when valid) and an eSpeak phone sequence. Batches use teacher forcing:
+when valid) and an eSpeak IPA target sequence (word-level chunks; see dataset builder).
+Batches use teacher forcing:
 decoder input ``[BOS, p0, …, p_{L-1}]``, targets ``[p0, …, p_{L-1}, EOS]``.
 """
 

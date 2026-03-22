@@ -14,7 +14,29 @@ from cmudict_ipa import CmudictIpa, normalize_word_for_lookup, split_text_to_wor
 if TYPE_CHECKING:
     from heteronym.infer import HeteronymDisambiguator
 
-_DEFAULT_DICT_TSV = Path(__file__).resolve().parent / "data" / "en_us" / "dict.tsv"
+_DEFAULT_DICT_TSV = Path(__file__).resolve().parent / "data" / "en_us" / "dict_filtered_heteronyms.txt"
+_ESPEAK_VOICE = "en-us"
+
+
+def _espeak_ng_ipa_line(text: str) -> str | None:
+    """
+    IPA string from libespeak-ng via ``espeak_phonemizer`` (same family as ``espeak-ng --ipa``).
+    Uses the same separator settings as ``heteronym.espeak_heteronyms.espeak_phonemize_ipa_raw``.
+    Returns None if the optional dependency or engine is unavailable, or phonemization fails.
+    """
+    try:
+        from heteronym.espeak_heteronyms import EspeakPhonemizer, espeak_phonemize_ipa_raw
+    except ImportError:
+        return None
+    t = text.strip()
+    if not t:
+        return None
+    try:
+        phon = EspeakPhonemizer(default_voice=_ESPEAK_VOICE)
+        raw = espeak_phonemize_ipa_raw(phon, t, voice=_ESPEAK_VOICE)
+    except (AssertionError, OSError, RuntimeError):
+        return None
+    return raw or None
 
 
 class MoonshineG2P:
@@ -60,6 +82,7 @@ class MoonshineG2P:
             if len(alts) == 1:
                 parts.append(alts[0])
             elif self._heteronym is not None:
+                print(text[start:end], key, alts)
                 parts.append(
                     self._heteronym.disambiguate_ipa(
                         text,
@@ -105,6 +128,11 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         metavar="DEVICE",
         help="torch device for heteronym model (default: cuda if available else cpu)",
     )
+    p.add_argument(
+        "--no-espeak",
+        action="store_true",
+        help="do not print a second IPA line from eSpeak NG",
+    )
     return p.parse_args(argv)
 
 
@@ -128,6 +156,10 @@ def main(argv: list[str] | None = None) -> None:
     )
     phrase = "Hello world!" if not args.text else " ".join(args.text)
     print(g2p.text_to_ipa(phrase))
+    if not args.no_espeak:
+        espeak_line = _espeak_ng_ipa_line(phrase)
+        if espeak_line is not None:
+            print(f"{espeak_line} (espeak-ng)")
 
 
 if __name__ == "__main__":

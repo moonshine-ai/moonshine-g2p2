@@ -26,6 +26,36 @@ from cmudict_ipa import CmudictIpa, normalize_word_for_lookup
 
 WORD_RE = re.compile(r"\S+")
 
+# Shared across CLI, dataset builders, and heteronym/OOV extraction: spaces only
+# between eSpeak words, not between phoneme symbols within a word.
+ESPEAK_IPA_PHONEME_SEPARATOR = ""
+ESPEAK_IPA_WORD_SEPARATOR = " "
+
+
+def espeak_phonemize_ipa_raw(
+    phonemizer: EspeakPhonemizer,
+    text: str,
+    *,
+    voice: str,
+) -> str:
+    """
+    Full IPA line from ``espeak_phonemizer`` using project-wide separator settings.
+    Words are separated by spaces; phoneme symbols within a word are not spaced.
+    """
+    t = text.strip()
+    if not t:
+        return ""
+    try:
+        raw = phonemizer.phonemize(
+            t,
+            voice=voice,
+            phoneme_separator=ESPEAK_IPA_PHONEME_SEPARATOR,
+            word_separator=ESPEAK_IPA_WORD_SEPARATOR,
+        )
+    except (AssertionError, OSError):
+        return ""
+    return raw.strip() if raw else ""
+
 
 def espeak_ipa_tokens(
     phonemizer: EspeakPhonemizer,
@@ -34,21 +64,11 @@ def espeak_ipa_tokens(
     voice: str,
 ) -> list[str]:
     """
-    IPA phone tokens via ``espeak_phonemizer`` (same tokenization as
-    ``espeak-ng --ipa`` with a space phoneme separator).
+    IPA chunks at eSpeak **word** boundaries (split of :func:`espeak_phonemize_ipa_raw`).
+    Used with :func:`longest_insert_block` after removing a surface word from *text*;
+    :func:`extract_examples_for_sentence` joins the recovered block with ``""``.
     """
-    t = text.strip()
-    if not t:
-        return []
-    try:
-        raw = phonemizer.phonemize(
-            t,
-            voice=voice,
-            phoneme_separator=" ",
-            word_separator=" ",
-        ).strip()
-    except (AssertionError, OSError):
-        return []
+    raw = espeak_phonemize_ipa_raw(phonemizer, text, voice=voice)
     if not raw:
         return []
     return [x for x in raw.split() if x]

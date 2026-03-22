@@ -1,4 +1,7 @@
-"""Load a trained OOV G2P checkpoint and greedy-decode phonemes for a word string."""
+"""Load a trained OOV G2P checkpoint and greedy-decode phonemes for a word string.
+
+By default also prints eSpeak NG IPA on the following line (``--no-espeak`` to disable).
+"""
 
 from __future__ import annotations
 
@@ -18,6 +21,25 @@ from g2p_common import SPECIAL_PAD
 
 from oov.data import SPECIAL_PHON_BOS, SPECIAL_PHON_EOS, SPECIAL_PHON_PAD, PhonemeVocab, load_training_artifacts
 from oov.model import TinyOovG2pTransformer
+
+_DEFAULT_ESPEAK_VOICE = "en-us"
+
+
+def _espeak_ng_ipa_for_surface(text: str, *, voice: str) -> str | None:
+    """IPA from libespeak-ng; same separator policy as ``heteronym.espeak_heteronyms``."""
+    try:
+        from heteronym.espeak_heteronyms import EspeakPhonemizer, espeak_phonemize_ipa_raw
+    except ImportError:
+        return None
+    t = text.strip()
+    if not t:
+        return None
+    try:
+        phon = EspeakPhonemizer(default_voice=voice)
+        raw = espeak_phonemize_ipa_raw(phon, t, voice=voice)
+    except (AssertionError, OSError, RuntimeError):
+        return None
+    return raw or None
 
 
 class OovG2pPredictor:
@@ -114,6 +136,18 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("checkpoint", type=Path, help="Path to checkpoint.pt (vocab files in same directory)")
     p.add_argument("word", help="Single word to transcribe")
     p.add_argument("--device", default=None, help="Device (cuda/cpu); default: auto")
+    p.add_argument(
+        "--no-espeak",
+        action="store_true",
+        help="do not print a second IPA line from eSpeak NG",
+    )
+    p.add_argument(
+        "--espeak-voice",
+        type=str,
+        default=_DEFAULT_ESPEAK_VOICE,
+        metavar="VOICE",
+        help=f"eSpeak voice for the reference line (default: {_DEFAULT_ESPEAK_VOICE})",
+    )
     return p.parse_args()
 
 
@@ -122,6 +156,10 @@ def main() -> None:
     pred = OovG2pPredictor(args.checkpoint, device=args.device)
     phones = pred.predict_phonemes(args.word)
     print("".join(phones))
+    if not args.no_espeak:
+        espeak_line = _espeak_ng_ipa_for_surface(args.word, voice=args.espeak_voice)
+        if espeak_line is not None:
+            print(f"{espeak_line} (espeak-ng)")
 
 
 if __name__ == "__main__":

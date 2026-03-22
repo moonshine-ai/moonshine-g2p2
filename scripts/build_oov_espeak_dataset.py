@@ -3,7 +3,8 @@
 Build OOV G2P training JSON from a pronouncing dictionary only (single words).
 
 One example per ``word<TAB>ipa`` row. ``char`` is the **word alone** (no sentence
-context); phones are eSpeak IPA tokens for that isolated surface.
+context); ``phonemes`` lists eSpeak IPA word chunks (typically one concatenated
+IPA string per surface word; see ``heteronym.espeak_heteronyms`` separator constants).
 
 Train/validation split is **by word key** (normalized lookup key) so the same
 grapheme key never appears in both splits.

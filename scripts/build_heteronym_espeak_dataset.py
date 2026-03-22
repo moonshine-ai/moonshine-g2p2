@@ -4,7 +4,7 @@ Build a synthetic heteronym-disambiguation JSON corpus using eSpeak NG + CMUdict
 
 For each source sentence that contains at least one token with multiple CMUdict
 IPA readings, runs eSpeak twice (full text vs. text with that token removed),
-diffs tokenized IPA output to recover the pronunciation eSpeak chose for the
+diffs word-level IPA output to recover the pronunciation eSpeak chose for the
 token, and if it matches one of the dictionary alternatives, emits a LibriG2P-
 compatible record (char span + homograph_wordid = that IPA string).
 
