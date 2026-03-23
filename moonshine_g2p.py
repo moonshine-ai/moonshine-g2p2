@@ -13,9 +13,22 @@ from cmudict_ipa import CmudictIpa, normalize_word_for_lookup, split_text_to_wor
 
 if TYPE_CHECKING:
     from heteronym.infer import HeteronymDisambiguator
+    from oov.infer import OovG2pPredictor
 
-_DEFAULT_DICT_TSV = Path(__file__).resolve().parent / "data" / "en_us" / "dict_filtered_heteronyms.txt"
+_REPO_ROOT = Path(__file__).resolve().parent
+_DEFAULT_DICT_TSV = _REPO_ROOT / "data" / "en_us" / "dict_filtered_heteronyms.txt"
+_DEFAULT_OOV_CHECKPOINT = _REPO_ROOT / "models" / "en_us" / "oov" / "checkpoint.pt"
+_DEFAULT_HETERONYM_CHECKPOINT = _REPO_ROOT / "models" / "en_us" / "heteronym" / "checkpoint.pt"
 _ESPEAK_VOICE = "en-us"
+
+
+def _resolve_optional_checkpoint(
+    explicit: Path | str | None, default_path: Path
+) -> Path | None:
+    """Use *explicit* when set; otherwise *default_path* if that file exists."""
+    if explicit is not None:
+        return Path(explicit)
+    return default_path if default_path.is_file() else None
 
 
 def _espeak_ng_ipa_line(text: str) -> str | None:
@@ -43,10 +56,13 @@ class MoonshineG2P:
     """
     Split text with :func:`~cmudict_ipa.split_text_to_words`, look up each token
     via :meth:`CmudictIpa.translate_to_ipa` (normalization lives there), and join
-    IPA strings with spaces. Unknown tokens are omitted. When CMUdict lists
-    several IPA forms for a word, a trained heteronym model (optional checkpoint)
-    chooses among them using greedy phoneme decoding and Levenshtein matching on a
-    short centered context window; without a checkpoint, the first sorted alternative is used.
+    IPA strings with spaces. Unknown tokens are passed through a trained OOV G2P
+    checkpoint when available (``models/en_us/oov/checkpoint.pt`` by default if present);
+    otherwise they are omitted. When CMUdict lists several IPA forms for a word, a
+    trained heteronym model (default ``models/en_us/heteronym/checkpoint.pt`` when
+    present) chooses among them using greedy phoneme decoding and Levenshtein matching
+    on a short centered context window; without a checkpoint, the first sorted
+    alternative is used.
     """
 
     def __init__(
@@ -55,13 +71,22 @@ class MoonshineG2P:
         *,
         heteronym_checkpoint: Path | str | None = None,
         heteronym_device: str | None = None,
+        oov_checkpoint: Path | str | None = None,
+        oov_device: str | None = None,
     ) -> None:
         self._cmudict = cmudict
         self._heteronym: HeteronymDisambiguator | None = None
-        if heteronym_checkpoint is not None:
+        het_path = _resolve_optional_checkpoint(heteronym_checkpoint, _DEFAULT_HETERONYM_CHECKPOINT)
+        if het_path is not None:
             from heteronym.infer import HeteronymDisambiguator as _HD
 
-            self._heteronym = _HD(heteronym_checkpoint, device=heteronym_device)
+            self._heteronym = _HD(het_path, device=heteronym_device)
+        self._oov: OovG2pPredictor | None = None
+        oov_path = _resolve_optional_checkpoint(oov_checkpoint, _DEFAULT_OOV_CHECKPOINT)
+        if oov_path is not None:
+            from oov.infer import OovG2pPredictor as _Oov
+
+            self._oov = _Oov(oov_path, device=oov_device)
 
     def text_to_ipa(self, text: str) -> str:
         parts: list[str] = []
@@ -78,6 +103,10 @@ class MoonshineG2P:
                 continue
             (_, alts), = self._cmudict.translate_to_ipa([token])
             if not alts:
+                if self._oov is not None:
+                    phones = self._oov.predict_phonemes(key)
+                    if phones:
+                        parts.append("".join(phones))
                 continue
             if len(alts) == 1:
                 parts.append(alts[0])
@@ -118,7 +147,10 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=None,
         metavar="PATH",
-        help="trained heteronym checkpoint.pt (char_vocab.json, phoneme_vocab.json, homograph_index.json in same dir)",
+        help=(
+            "heteronym checkpoint.pt (sibling char/phoneme vocabs, homograph_index.json); "
+            f"default if omitted: {_DEFAULT_HETERONYM_CHECKPOINT} when that file exists"
+        ),
     )
     p.add_argument(
         "--heteronym-device",
@@ -126,6 +158,23 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         default=None,
         metavar="DEVICE",
         help="torch device for heteronym model (default: cuda if available else cpu)",
+    )
+    p.add_argument(
+        "--oov-checkpoint",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "OOV G2P checkpoint.pt (sibling char_vocab.json, phoneme_vocab.json); "
+            f"default if omitted: {_DEFAULT_OOV_CHECKPOINT} when that file exists"
+        ),
+    )
+    p.add_argument(
+        "--oov-device",
+        type=str,
+        default=None,
+        metavar="DEVICE",
+        help="torch device for OOV model (default: cuda if available else cpu)",
     )
     p.add_argument(
         "--no-espeak",
@@ -144,14 +193,20 @@ def main(argv: list[str] | None = None) -> None:
             "Run: python3 scripts/download_cmudict_to_tsv.py\n"
         )
         sys.exit(1)
-    ckpt = args.heteronym_checkpoint
-    if ckpt is not None and not ckpt.is_file():
-        sys.stderr.write(f"error: heteronym checkpoint not found: {ckpt}\n")
+    het_ckpt = args.heteronym_checkpoint
+    if het_ckpt is not None and not het_ckpt.is_file():
+        sys.stderr.write(f"error: heteronym checkpoint not found: {het_ckpt}\n")
+        sys.exit(1)
+    oov_ckpt = args.oov_checkpoint
+    if oov_ckpt is not None and not oov_ckpt.is_file():
+        sys.stderr.write(f"error: OOV checkpoint not found: {oov_ckpt}\n")
         sys.exit(1)
     g2p = MoonshineG2P(
         CmudictIpa(path),
-        heteronym_checkpoint=ckpt,
+        heteronym_checkpoint=het_ckpt,
         heteronym_device=args.heteronym_device,
+        oov_checkpoint=oov_ckpt,
+        oov_device=args.oov_device,
     )
     phrase = "Hello world!" if not args.text else " ".join(args.text)
     print(g2p.text_to_ipa(phrase))
