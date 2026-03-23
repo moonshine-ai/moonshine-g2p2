@@ -3,8 +3,8 @@
 Measure heteronym classifier collapse on a labeled JSON corpus.
 
 Loads a trained checkpoint (``model.pt`` or ``checkpoint.pt``) and sibling
-artifacts (``char_vocab.json``, ``ipa_char_vocab.json``, ``homograph_index.json``),
-then runs the same batched forward pass as training validation.
+artifacts (``char_vocab.json``, ``phoneme_vocab.json``, ``homograph_index.json``),
+then runs teacher-forced one-pass argmax + Levenshtein candidate matching (same as training validation).
 
 Reports:
 
@@ -44,7 +44,10 @@ if str(_REPO_ROOT) not in sys.path:
 
 import torch
 
+from g2p_common import HETERONYM_CONTEXT_MAX_CHARS
 from heteronym.infer import _resolve_snap_and_state_dict
+from heteronym.ipa_postprocess import pick_closest_alternative_index
+from heteronym.teacher_force import teacher_forced_argmax_phoneme_tokens
 from heteronym.librig2p import iter_encoded_batches, load_homograph_json, load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
 
@@ -164,6 +167,12 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="how many homograph keys to print in the collapse table",
     )
     p.add_argument("--json-out", type=Path, default=None, help="write full metrics JSON here")
+    p.add_argument(
+        "--levenshtein-extra-phonemes",
+        type=int,
+        default=4,
+        help="match decoder output to candidates using prefix len(candidate)+N (default 4)",
+    )
     return p.parse_args(argv)
 
 
@@ -179,7 +188,7 @@ def main(argv: list[str] | None = None) -> None:
 
     device = torch.device(args.device)
     artifacts_dir = ckpt_path.parent
-    char_vocab, ipa_cv, ordered, ordered_ipa, label_maps, max_candidates, group_key = (
+    char_vocab, phoneme_vocab, ordered, ordered_ipa, label_maps, max_candidates, group_key = (
         load_training_artifacts(artifacts_dir)
     )
 
@@ -188,8 +197,13 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit("checkpoint must be a dict (full checkpoint or state_dict)")
     snap, state_dict = _resolve_snap_and_state_dict(ckpt_path, ckpt)
 
-    max_seq_len = _snap_int(snap, "max_seq_len", 384)
-    max_ipa_len = _snap_int(snap, "max_ipa_len", 64)
+    max_seq_len = _snap_int(snap, "max_seq_len", HETERONYM_CONTEXT_MAX_CHARS)
+    max_phoneme_len = _snap_int(
+        snap, "max_phoneme_len", _snap_int(snap, "max_ipa_len", 64)
+    )
+    n_enc = _snap_int(snap, "n_layers", 2)
+    n_dec = _snap_int(snap, "n_decoder_layers", n_enc)
+    lev_n = int(snap.get("levenshtein_extra_phonemes", args.levenshtein_extra_phonemes))
     snap_mc = _snap_int(snap, "max_candidates", max_candidates)
     if snap_mc != max_candidates:
         raise SystemExit(
@@ -200,15 +214,15 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(f"checkpoint group_key {sk!r} != homograph_index.json {group_key!r}")
 
     model = TinyHeteronymTransformer(
-        vocab_size=len(char_vocab),
+        char_vocab_size=len(char_vocab),
+        phoneme_vocab_size=len(phoneme_vocab),
         max_seq_len=max_seq_len,
-        ipa_vocab_size=len(ipa_cv),
-        max_ipa_len=max_ipa_len,
+        max_phoneme_len=max_phoneme_len,
         d_model=_snap_int(snap, "d_model", 128),
         n_heads=_snap_int(snap, "n_heads", 4),
-        n_layers=_snap_int(snap, "n_layers", 2),
+        n_encoder_layers=n_enc,
+        n_decoder_layers=n_dec,
         dim_feedforward=_snap_int(snap, "ffn_dim", 256),
-        max_candidates=max_candidates,
         dropout=float(snap.get("dropout", 0.0)),
     ).to(device)
     model.load_state_dict(state_dict)
@@ -237,8 +251,6 @@ def main(argv: list[str] | None = None) -> None:
             train_ipa_dom[gk] = ipa_m
             train_n_rows[gk] = sum(ctr.values())
 
-    neg_inf = torch.finfo(torch.float32).min / 4
-
     gold_global: Counter[int] = Counter()
     pred_global: Counter[int] = Counter()
     pred_ipa_global: Counter[str] = Counter()
@@ -257,14 +269,14 @@ def main(argv: list[str] | None = None) -> None:
         for batch in iter_encoded_batches(
             records,
             char_vocab=char_vocab,
-            ipa_char_vocab=ipa_cv,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=group_key,
             max_seq_len=max_seq_len,
             max_candidates=max_candidates,
-            max_ipa_len=max_ipa_len,
+            max_phoneme_len=max_phoneme_len,
             batch_size=args.batch_size,
             shuffle=False,
             seed=0,
@@ -272,26 +284,41 @@ def main(argv: list[str] | None = None) -> None:
             balance_training=False,
             include_group_keys=True,
         ):
-            logits = model(
-                batch["input_ids"].to(device),
-                batch["attention_mask"].to(device),
-                batch["span_mask"].to(device),
-                batch["ipa_input_ids"].to(device),
-                batch["ipa_attention_mask"].to(device),
-            )
             cm = batch["candidate_mask"].to(device)
-            masked = logits.masked_fill(~cm, neg_inf)
-            pred = masked.argmax(dim=-1)
             y = batch["labels"].to(device)
             valid = cm.gather(1, y.unsqueeze(1)).squeeze(1).bool()
+            inp = batch["input_ids"].to(device)
+            am = batch["attention_mask"].to(device)
+            sm = batch["span_mask"].to(device)
             gkeys = batch["group_keys"]
 
-            for row in range(pred.shape[0]):
+            logits = model(
+                inp,
+                am,
+                sm,
+                batch["decoder_input_ids"].to(device),
+                batch["decoder_attention_mask"].to(device),
+            )
+            dec_labels = batch["decoder_labels"].to(device)
+
+            for row in range(inp.shape[0]):
                 if not bool(valid[row].item()):
                     continue
                 gk = gkeys[row]
                 yi = int(y[row].item())
-                pi = int(pred[row].item())
+                n_valid = int(cm[row].sum().item())
+                pred_tokens = teacher_forced_argmax_phoneme_tokens(
+                    logits[row],
+                    dec_labels[row],
+                    phoneme_vocab,
+                )
+                ipa_slots = ordered_ipa[gk]
+                pi = pick_closest_alternative_index(
+                    pred_tokens,
+                    ipa_slots,
+                    n_valid=n_valid,
+                    extra_phonemes=lev_n,
+                )
                 gold_global[yi] += 1
                 pred_global[pi] += 1
                 per_key_gold[gk][yi] += 1

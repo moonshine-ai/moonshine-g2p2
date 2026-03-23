@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-Train the small heteronym Transformer on LibriG2P homograph JSON.
+Train the small heteronym encoder–decoder on LibriG2P homograph JSON (phoneme
+targets, OOV-style decoder). Validation uses one teacher-forced forward per batch,
+argmax phoneme tokens, and Levenshtein matching among candidates. Inference scores
+each CMUdict alternative with teacher-forced NLL and picks the lowest loss.
 
 Example::
 
@@ -31,7 +34,8 @@ inverse-frequency balancing over
 ``--max-alternative-spread 0``.
 
 Use ``--valid-debug-json PATH`` to write misclassified validation rows each epoch
-(context window, gold vs pred, logits, softmax); optional ``--valid-debug-max-errors``.
+(context window, gold vs pred, teacher-forced argmax phoneme tokens, per-candidate Levenshtein distances);
+optional ``--valid-debug-max-errors``.
 """
 
 from __future__ import annotations
@@ -47,21 +51,30 @@ from typing import Any
 
 import torch
 from torch.optim import AdamW
+from tqdm.auto import tqdm
 
+from g2p_common import HETERONYM_CONTEXT_MAX_CHARS
+from heteronym.teacher_force import teacher_forced_argmax_phoneme_tokens
+from heteronym.ipa_postprocess import (
+    ipa_string_to_phoneme_tokens,
+    levenshtein_distance,
+    pick_closest_alternative_index,
+)
 from heteronym.librig2p import (
     HomographRecord,
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
-    build_ipa_char_vocab_from_ordered_ipa,
+    build_phoneme_vocab_from_ordered_ipa,
     cap_alternative_class_spread,
     download_librig2p_homograph_split,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
-    max_encoded_ipa_len,
+    max_encoded_phoneme_len,
     save_training_artifacts,
 )
-from heteronym.model import TinyHeteronymTransformer, masked_candidate_loss
+from heteronym.model import TinyHeteronymTransformer
+from oov.model import decoder_ce_loss
 
 logger = logging.getLogger(__name__)
 
@@ -72,11 +85,12 @@ CHECKPOINT_NAME = "checkpoint.pt"
 _CKPT_ARG_KEYS = (
     "max_seq_len",
     "max_candidates",
-    "max_ipa_len",
+    "max_phoneme_len",
     "group_key",
     "d_model",
     "n_heads",
     "n_layers",
+    "n_decoder_layers",
     "ffn_dim",
     "dropout",
     "seed",
@@ -88,6 +102,7 @@ _CKPT_ARG_KEYS = (
     "valid_json",
     "valid_fraction",
     "max_alternative_spread",
+    "levenshtein_extra_phonemes",
 )
 
 
@@ -115,6 +130,10 @@ def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace
         if k == "valid_fraction" and s is None:
             continue
         if k == "max_alternative_spread" and s is None:
+            continue
+        if k == "levenshtein_extra_phonemes" and s is None:
+            continue
+        if k == "n_decoder_layers" and s is None:
             continue
         mismatches.append(k)
     if mismatches:
@@ -169,17 +188,37 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--batch-size", type=int, default=32)
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--weight-decay", type=float, default=0.01)
-    p.add_argument("--max-seq-len", type=int, default=384)
+    p.add_argument(
+        "--max-seq-len",
+        type=int,
+        default=HETERONYM_CONTEXT_MAX_CHARS,
+        help=f"encoder sequence length (positional embeddings); default {HETERONYM_CONTEXT_MAX_CHARS} "
+        "matches the heteronym surface context window",
+    )
     p.add_argument("--max-candidates", type=int, default=4)
     p.add_argument(
-        "--max-ipa-len",
+        "--max-phoneme-len",
         type=int,
         default=64,
-        help="max IPA characters per candidate (sequences are truncated; positions are padded)",
+        help="max phoneme tokens in decoder (BOS/EOS inclusive cap on teacher-forcing length)",
     )
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--n-heads", type=int, default=4)
     p.add_argument("--n-layers", type=int, default=2)
+    p.add_argument(
+        "--n-decoder-layers",
+        type=int,
+        default=None,
+        help="decoder depth (default: same as --n-layers)",
+    )
+    p.add_argument(
+        "--levenshtein-extra-phonemes",
+        type=int,
+        default=4,
+        metavar="N",
+        help="validation / inference: compare each candidate to at most len(candidate)+N "
+        "decoded phoneme tokens (reduces impact of repetitive hallucinations)",
+    )
     p.add_argument("--ffn-dim", type=int, default=256)
     p.add_argument("--dropout", type=float, default=0.0)
     p.add_argument("--seed", type=int, default=42)
@@ -321,107 +360,131 @@ def _run_validation(
     records,
     *,
     char_vocab,
-    ipa_char_vocab,
+    phoneme_vocab,
     ordered,
     ordered_ipa,
     label_maps,
     group_key: str,
     max_seq_len: int,
     max_candidates: int,
-    max_ipa_len: int,
+    max_phoneme_len: int,
     batch_size: int,
     device: torch.device,
     collect_errors: bool,
     max_errors: int,
+    levenshtein_extra_phonemes: int,
+    pbar_desc: str | None = None,
 ) -> tuple[float, int, int, list[dict[str, Any]] | None, int]:
     """
     Returns (accuracy, n_ok, n_tot, errors_or_none, n_errors_total).
 
-    When *collect_errors* is True, *errors_or_none* lists up to *max_errors* misclassified
-    rows with context, gold/pred labels, logits, and softmax probabilities.
-    *n_errors_total* is the full wrong count (even when the error list is capped).
+    Predictions: one teacher-forced forward per batch, argmax phoneme tokens per row,
+    then closest training-slot IPA by Levenshtein (candidate length +
+    *levenshtein_extra_phonemes* on the prediction prefix).
     """
     model.eval()
     n_ok = 0
     n_tot = 0
     errors: list[dict[str, Any]] | None = [] if collect_errors else None
     n_errors_total = 0
-    neg_inf = torch.finfo(torch.float32).min / 4
     with torch.no_grad():
-        for batch in iter_encoded_batches(
+        batch_iter = iter_encoded_batches(
             records,
             char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=group_key,
             max_seq_len=max_seq_len,
             max_candidates=max_candidates,
-            max_ipa_len=max_ipa_len,
+            max_phoneme_len=max_phoneme_len,
             batch_size=batch_size,
             shuffle=False,
             seed=0,
-            include_group_keys=collect_errors,
+            include_group_keys=True,
             include_row_debug=collect_errors,
-        ):
-            logits = model(
-                batch["input_ids"].to(device),
-                batch["attention_mask"].to(device),
-                batch["span_mask"].to(device),
-                batch["ipa_input_ids"].to(device),
-                batch["ipa_attention_mask"].to(device),
-            )
+        )
+        if pbar_desc is not None:
+            iterator = tqdm(batch_iter, desc=pbar_desc, unit="batch", leave=True)
+        else:
+            iterator = batch_iter
+        for batch in iterator:
             cm = batch["candidate_mask"].to(device)
-            masked = logits.masked_fill(~cm, neg_inf)
-            pred = masked.argmax(dim=-1)
-            probs = torch.softmax(masked, dim=-1)
             y = batch["labels"].to(device)
             valid = cm.gather(1, y.unsqueeze(1)).squeeze(1).bool()
-            n_ok += int((pred == y)[valid].sum().item())
-            n_tot += int(valid.sum().item())
-            if not collect_errors or errors is None:
-                continue
+            inp = batch["input_ids"].to(device)
+            am = batch["attention_mask"].to(device)
+            sm = batch["span_mask"].to(device)
             gkeys = batch["group_keys"]
-            dbg_rows = batch["row_debug"]
-            for row in range(pred.shape[0]):
+            dbg_rows = batch["row_debug"] if collect_errors else None
+
+            logits = model(
+                inp,
+                am,
+                sm,
+                batch["decoder_input_ids"].to(device),
+                batch["decoder_attention_mask"].to(device),
+            )
+            dec_labels = batch["decoder_labels"].to(device)
+
+            for row in range(inp.shape[0]):
                 if not bool(valid[row].item()):
                     continue
                 yi = int(y[row].item())
-                pi = int(pred[row].item())
-                if yi == pi:
-                    continue
-                n_errors_total += 1
-                if len(errors) >= max_errors:
-                    continue
+                n_valid = int(cm[row].sum().item())
+                pred_tokens = teacher_forced_argmax_phoneme_tokens(
+                    logits[row],
+                    dec_labels[row],
+                    phoneme_vocab,
+                )
                 gk = gkeys[row]
-                cands_w = ordered[gk]
-                cands_ipa = ordered_ipa[gk]
-                k_real = len(cands_w)
-                log_row = masked[row].detach().cpu().tolist()
-                prob_row = probs[row].detach().cpu().tolist()
-                rec: dict[str, Any] = {
-                    **dbg_rows[row],
-                    "gold_label_index": yi,
-                    "pred_label_index": pi,
-                    "gold_homograph_wordid": cands_w[yi] if yi < k_real else None,
-                    "pred_homograph_wordid": cands_w[pi] if pi < k_real else None,
-                    "gold_ipa": cands_ipa[yi] if yi < k_real else None,
-                    "pred_ipa": cands_ipa[pi] if pi < k_real else None,
-                    "alternatives": [
-                        {
-                            "index": i,
-                            "homograph_wordid": cands_w[i],
-                            "ipa": cands_ipa[i],
-                            "logit": log_row[i] if i < len(log_row) else None,
-                            "prob": prob_row[i] if i < len(prob_row) else None,
-                        }
-                        for i in range(k_real)
-                    ],
-                    "logits_all_slots": log_row,
-                    "softmax_probs_all_slots": prob_row,
-                }
-                errors.append(rec)
+                ipa_slots = ordered_ipa[gk]
+                pi = pick_closest_alternative_index(
+                    pred_tokens,
+                    ipa_slots,
+                    n_valid=n_valid,
+                    extra_phonemes=levenshtein_extra_phonemes,
+                )
+                n_tot += 1
+                if pi == yi:
+                    n_ok += 1
+                else:
+                    n_errors_total += 1
+                    if not collect_errors or errors is None or len(errors) >= max_errors:
+                        continue
+                    cands_w = ordered[gk]
+                    cands_ipa = ordered_ipa[gk]
+                    k_real = len(cands_w)
+                    dists = []
+                    for i in range(k_real):
+                        cand_tok = ipa_string_to_phoneme_tokens(cands_ipa[i])
+                        lim = len(cand_tok) + max(0, int(levenshtein_extra_phonemes))
+                        dists.append(levenshtein_distance(cand_tok, pred_tokens[:lim]))
+                    rec: dict[str, Any] = {
+                        **dbg_rows[row],
+                        "gold_label_index": yi,
+                        "pred_label_index": pi,
+                        "teacher_forced_argmax_phoneme_tokens": pred_tokens,
+                        "levenshtein_extra_phonemes": levenshtein_extra_phonemes,
+                        "levenshtein_distances_to_candidates": dists,
+                        "gold_homograph_wordid": cands_w[yi] if yi < k_real else None,
+                        "pred_homograph_wordid": cands_w[pi] if pi < k_real else None,
+                        "gold_ipa": cands_ipa[yi] if yi < k_real else None,
+                        "pred_ipa": cands_ipa[pi] if pi < k_real else None,
+                        "alternatives": [
+                            {
+                                "index": i,
+                                "homograph_wordid": cands_w[i],
+                                "ipa": cands_ipa[i],
+                                "levenshtein_to_argmax_prefix": dists[i] if i < len(dists) else None,
+                            }
+                            for i in range(k_real)
+                        ],
+                    }
+                    errors.append(rec)
+            if pbar_desc is not None:
+                iterator.set_postfix(acc=f"{n_ok / max(n_tot, 1):.4f}", rows=n_tot)
     acc = n_ok / max(n_tot, 1)
     if collect_errors and errors is not None:
         return acc, n_ok, n_tot, errors, n_errors_total
@@ -433,33 +496,37 @@ def _evaluate(
     records,
     *,
     char_vocab,
-    ipa_char_vocab,
+    phoneme_vocab,
     ordered,
     ordered_ipa,
     label_maps,
     group_key: str,
     max_seq_len: int,
     max_candidates: int,
-    max_ipa_len: int,
+    max_phoneme_len: int,
     batch_size: int,
     device: torch.device,
+    levenshtein_extra_phonemes: int,
+    pbar_desc: str | None = None,
 ) -> float:
     acc, _, _, _, _ = _run_validation(
         model,
         records,
         char_vocab=char_vocab,
-        ipa_char_vocab=ipa_char_vocab,
+        phoneme_vocab=phoneme_vocab,
         ordered=ordered,
         ordered_ipa=ordered_ipa,
         label_maps=label_maps,
         group_key=group_key,
         max_seq_len=max_seq_len,
         max_candidates=max_candidates,
-        max_ipa_len=max_ipa_len,
+        max_phoneme_len=max_phoneme_len,
         batch_size=batch_size,
         device=device,
         collect_errors=False,
         max_errors=0,
+        levenshtein_extra_phonemes=levenshtein_extra_phonemes,
+        pbar_desc=pbar_desc,
     )
     return acc
 
@@ -487,7 +554,7 @@ def _write_valid_debug_json(
     top_keys = by_key.most_common(40)
     top_confusions = gold_vs_pred.most_common(30)
     payload = {
-        "schema": "heteronym_valid_debug_v1",
+        "schema": "heteronym_valid_debug_v3_teacher_argmax",
         "epoch": epoch,
         "valid_accuracy": accuracy,
         "n_ok": n_ok,
@@ -516,6 +583,8 @@ def _write_valid_debug_json(
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
+    if args.n_decoder_layers is None:
+        args.n_decoder_layers = args.n_layers
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
@@ -570,7 +639,7 @@ def main(argv: list[str] | None = None) -> None:
             )
 
     if args.resume:
-        char_vocab, ipa_char_vocab, ordered, ordered_ipa, label_maps, mc, gk = load_training_artifacts(out)
+        char_vocab, phoneme_vocab, ordered, ordered_ipa, label_maps, mc, gk = load_training_artifacts(out)
         if mc != args.max_candidates or gk != args.group_key:
             raise SystemExit(
                 "Refusing to resume: --max-candidates / --group-key must match "
@@ -585,8 +654,7 @@ def main(argv: list[str] | None = None) -> None:
         )
         extra = ".,;:'\"-" if not args.no_train_augment else None
         char_vocab = build_char_vocab_from_homograph_records(train_recs, extra_chars=extra)
-        ipa_extra = "ˈˌː̩̯̃͡↓ " if not args.no_train_augment else None
-        ipa_char_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa, extra_chars=ipa_extra)
+        phoneme_vocab = build_phoneme_vocab_from_ordered_ipa(ordered_ipa)
         with (out / "train_config.json").open("w", encoding="utf-8") as f:
             json.dump(vars(args), f, default=str, indent=2)
 
@@ -618,25 +686,34 @@ def main(argv: list[str] | None = None) -> None:
             "held-out examples from the train file, or point both splits at LibriG2P JSON."
         )
 
-    need_ipa = max_encoded_ipa_len(ordered_ipa, ipa_char_vocab, cap=10**9)
-    if need_ipa > args.max_ipa_len:
+    need_ph = max_encoded_phoneme_len(ordered_ipa, phoneme_vocab, cap=10**9)
+    if need_ph > args.max_phoneme_len:
         logger.warning(
-            "longest IPA encoding in the train index is %d chars; "
-            "--max-ipa-len=%d will truncate some candidates",
-            need_ipa,
-            args.max_ipa_len,
+            "longest gold phoneme sequence in the train index needs %d decoder steps; "
+            "--max-phoneme-len=%d may skip or truncate some rows",
+            need_ph,
+            args.max_phoneme_len,
+        )
+
+    if args.max_seq_len > HETERONYM_CONTEXT_MAX_CHARS:
+        logger.warning(
+            "--max-seq-len=%d exceeds heteronym surface context (%d chars); "
+            "only the first %d positions carry real text, the rest are pad",
+            args.max_seq_len,
+            HETERONYM_CONTEXT_MAX_CHARS,
+            HETERONYM_CONTEXT_MAX_CHARS,
         )
 
     model = TinyHeteronymTransformer(
-        vocab_size=len(char_vocab),
+        char_vocab_size=len(char_vocab),
+        phoneme_vocab_size=len(phoneme_vocab),
         max_seq_len=args.max_seq_len,
-        ipa_vocab_size=len(ipa_char_vocab),
-        max_ipa_len=args.max_ipa_len,
+        max_phoneme_len=args.max_phoneme_len,
         d_model=args.d_model,
         n_heads=args.n_heads,
-        n_layers=args.n_layers,
+        n_encoder_layers=args.n_layers,
+        n_decoder_layers=args.n_decoder_layers,
         dim_feedforward=args.ffn_dim,
-        max_candidates=args.max_candidates,
         dropout=args.dropout,
     ).to(device)
 
@@ -687,7 +764,7 @@ def main(argv: list[str] | None = None) -> None:
             train_recs=train_recs,
             valid_recs=valid_recs,
             char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
@@ -716,7 +793,7 @@ def _train_loop(
     train_recs,
     valid_recs,
     char_vocab,
-    ipa_char_vocab,
+    phoneme_vocab,
     ordered,
     ordered_ipa,
     label_maps,
@@ -729,58 +806,67 @@ def _train_loop(
     for epoch in range(start_epoch, args.epochs):
         model.train()
         losses = []
-        for batch in iter_encoded_batches(
+        batch_iter = iter_encoded_batches(
             train_recs,
             char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key=args.group_key,
             max_seq_len=args.max_seq_len,
             max_candidates=args.max_candidates,
-            max_ipa_len=args.max_ipa_len,
+            max_phoneme_len=args.max_phoneme_len,
             batch_size=args.batch_size,
             shuffle=True,
             seed=args.seed + epoch,
             train_augment=train_augment,
             balance_training=balance_training,
             surface_noise_prob=args.surface_noise_prob,
-        ):
+        )
+        pbar = tqdm(
+            batch_iter,
+            desc=f"train epoch {epoch + 1}/{args.epochs}",
+            unit="batch",
+            leave=True,
+        )
+        for batch in pbar:
             optimizer.zero_grad(set_to_none=True)
             logits = model(
                 batch["input_ids"].to(device),
                 batch["attention_mask"].to(device),
                 batch["span_mask"].to(device),
-                batch["ipa_input_ids"].to(device),
-                batch["ipa_attention_mask"].to(device),
+                batch["decoder_input_ids"].to(device),
+                batch["decoder_attention_mask"].to(device),
             )
-            loss = masked_candidate_loss(
-                logits,
-                batch["labels"].to(device),
-                batch["candidate_mask"].to(device),
-            )
+            loss = decoder_ce_loss(logits, batch["decoder_labels"].to(device))
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            losses.append(float(loss.item()))
+            lv = float(loss.item())
+            losses.append(lv)
+            pbar.set_postfix(loss=f"{lv:.4f}", avg=f"{sum(losses) / len(losses):.4f}")
+        lev_n = int(args.levenshtein_extra_phonemes)
+        valid_pbar = f"valid epoch {epoch + 1}/{args.epochs}"
         if args.valid_debug_json is not None:
             acc, n_ok_v, n_tot_v, err_rows, n_err_tot = _run_validation(
                 model,
                 valid_recs,
                 char_vocab=char_vocab,
-                ipa_char_vocab=ipa_char_vocab,
+                phoneme_vocab=phoneme_vocab,
                 ordered=ordered,
                 ordered_ipa=ordered_ipa,
                 label_maps=label_maps,
                 group_key=args.group_key,
                 max_seq_len=args.max_seq_len,
                 max_candidates=args.max_candidates,
-                max_ipa_len=args.max_ipa_len,
+                max_phoneme_len=args.max_phoneme_len,
                 batch_size=args.batch_size,
                 device=device,
                 collect_errors=True,
                 max_errors=max(0, int(args.valid_debug_max_errors)),
+                levenshtein_extra_phonemes=lev_n,
+                pbar_desc=valid_pbar,
             )
             _write_valid_debug_json(
                 args.valid_debug_json,
@@ -805,16 +891,18 @@ def _train_loop(
                 model,
                 valid_recs,
                 char_vocab=char_vocab,
-                ipa_char_vocab=ipa_char_vocab,
+                phoneme_vocab=phoneme_vocab,
                 ordered=ordered,
                 ordered_ipa=ordered_ipa,
                 label_maps=label_maps,
                 group_key=args.group_key,
                 max_seq_len=args.max_seq_len,
                 max_candidates=args.max_candidates,
-                max_ipa_len=args.max_ipa_len,
+                max_phoneme_len=args.max_phoneme_len,
                 batch_size=args.batch_size,
                 device=device,
+                levenshtein_extra_phonemes=lev_n,
+                pbar_desc=valid_pbar,
             )
         mean_loss = sum(losses) / max(len(losses), 1)
         logger.info(
@@ -829,7 +917,7 @@ def _train_loop(
         save_training_artifacts(
             out,
             char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_candidate_ipa=ordered_ipa,
             label_maps=label_maps,

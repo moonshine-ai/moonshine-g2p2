@@ -45,8 +45,8 @@ class MoonshineG2P:
     via :meth:`CmudictIpa.translate_to_ipa` (normalization lives there), and join
     IPA strings with spaces. Unknown tokens are omitted. When CMUdict lists
     several IPA forms for a word, a trained heteronym model (optional checkpoint)
-    chooses among them using full-sentence context; without a checkpoint, the
-    first sorted alternative is used.
+    chooses among them by teacher-forced NLL on each alternative in a short
+    centered context window; without a checkpoint, the first sorted alternative is used.
     """
 
     def __init__(
@@ -82,7 +82,6 @@ class MoonshineG2P:
             if len(alts) == 1:
                 parts.append(alts[0])
             elif self._heteronym is not None:
-                print(text[start:end], key, alts)
                 parts.append(
                     self._heteronym.disambiguate_ipa(
                         text,
@@ -119,7 +118,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=None,
         metavar="PATH",
-        help="trained heteronym checkpoint.pt (char_vocab.json and homograph_index.json in same dir)",
+        help="trained heteronym checkpoint.pt (char_vocab.json, phoneme_vocab.json, homograph_index.json in same dir)",
     )
     p.add_argument(
         "--heteronym-device",

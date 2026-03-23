@@ -10,13 +10,17 @@ from pathlib import Path
 import torch
 
 import train_heteronym
-from g2p_common import inference_context_window
+from g2p_common import (
+    HETERONYM_CONTEXT_MAX_CHARS,
+    heteronym_centered_context_window,
+    inference_context_window,
+)
 from heteronym.librig2p import (
     HomographRecord,
     apply_train_augmentation,
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
-    build_ipa_char_vocab_from_ordered_ipa,
+    build_phoneme_vocab_from_ordered_ipa,
     cap_alternative_class_spread,
     iter_encoded_batches,
     load_homograph_json,
@@ -24,7 +28,8 @@ from heteronym.librig2p import (
     save_training_artifacts,
     _training_index_order,
 )
-from heteronym.model import TinyHeteronymTransformer, masked_candidate_loss
+from heteronym.model import TinyHeteronymTransformer
+from oov.model import decoder_ce_loss
 
 
 def _tiny_json_path() -> Path:
@@ -74,30 +79,30 @@ def test_model_and_loss() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
-    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
+    phoneme_vocab = build_phoneme_vocab_from_ordered_ipa(ordered_ipa)
     model = TinyHeteronymTransformer(
-        vocab_size=len(vocab),
-        max_seq_len=64,
-        ipa_vocab_size=len(ipa_vocab),
-        max_ipa_len=32,
+        char_vocab_size=len(vocab),
+        phoneme_vocab_size=len(phoneme_vocab),
+        max_seq_len=32,
+        max_phoneme_len=32,
         d_model=64,
         n_heads=4,
-        n_layers=2,
+        n_encoder_layers=2,
+        n_decoder_layers=2,
         dim_feedforward=128,
-        max_candidates=4,
     )
     batches = list(
         iter_encoded_batches(
             recs,
             char_vocab=vocab,
-            ipa_char_vocab=ipa_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key="lower",
-            max_seq_len=64,
+            max_seq_len=32,
             max_candidates=4,
-            max_ipa_len=32,
+            max_phoneme_len=32,
             batch_size=8,
             shuffle=False,
             seed=0,
@@ -109,11 +114,11 @@ def test_model_and_loss() -> None:
         b["input_ids"],
         b["attention_mask"],
         b["span_mask"],
-        b["ipa_input_ids"],
-        b["ipa_attention_mask"],
+        b["decoder_input_ids"],
+        b["decoder_attention_mask"],
     )
-    assert logits.shape == (b["labels"].shape[0], 4)
-    loss = masked_candidate_loss(logits, b["labels"], b["candidate_mask"])
+    assert logits.shape[:2] == (b["labels"].shape[0], b["decoder_input_ids"].shape[1])
+    loss = decoder_ce_loss(logits, b["decoder_labels"])
     assert loss.ndim == 0
     loss.backward()
 
@@ -122,21 +127,21 @@ def test_save_load_artifacts() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
-    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
+    phoneme_vocab = build_phoneme_vocab_from_ordered_ipa(ordered_ipa)
     with tempfile.TemporaryDirectory() as d:
         save_training_artifacts(
             d,
             char_vocab=vocab,
-            ipa_char_vocab=ipa_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_candidate_ipa=ordered_ipa,
             label_maps=label_maps,
             max_candidates=4,
             group_key="lower",
         )
-        v2, iv2, o2, oi2, m2, k, gk = load_training_artifacts(d)
+        v2, pv2, o2, oi2, m2, k, gk = load_training_artifacts(d)
         assert len(v2) == len(vocab)
-        assert len(iv2) == len(ipa_vocab)
+        assert len(pv2) == len(phoneme_vocab)
         assert o2 == ordered
         assert oi2 == ordered_ipa
         assert m2 == label_maps
@@ -162,6 +167,18 @@ def test_augment_preserves_homograph_slice() -> None:
         assert out is not None
         t2, s2, e2 = out
         assert t2[s2:e2] == ref
+
+
+def test_heteronym_centered_context_window_32_chars() -> None:
+    pad = "a" * 40
+    text = pad + "READ" + pad
+    s = text.index("READ")
+    e = s + 4
+    out = heteronym_centered_context_window(text, s, e)
+    assert out is not None
+    w, ws, we = out
+    assert len(w) == HETERONYM_CONTEXT_MAX_CHARS == 32
+    assert w[ws:we] == "READ"
 
 
 def test_inference_context_window_keeps_span() -> None:
@@ -214,19 +231,19 @@ def test_iter_encoded_batches_includes_group_keys_when_asked() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
-    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
+    phoneme_vocab = build_phoneme_vocab_from_ordered_ipa(ordered_ipa)
     batches = list(
         iter_encoded_batches(
             recs,
             char_vocab=vocab,
-            ipa_char_vocab=ipa_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key="lower",
-            max_seq_len=64,
+            max_seq_len=32,
             max_candidates=4,
-            max_ipa_len=32,
+            max_phoneme_len=32,
             batch_size=8,
             shuffle=False,
             seed=0,
@@ -239,14 +256,14 @@ def test_iter_encoded_batches_includes_group_keys_when_asked() -> None:
         iter_encoded_batches(
             recs,
             char_vocab=vocab,
-            ipa_char_vocab=ipa_vocab,
+            phoneme_vocab=phoneme_vocab,
             ordered_candidates=ordered,
             ordered_ipa=ordered_ipa,
             label_maps=label_maps,
             group_key="lower",
-            max_seq_len=64,
+            max_seq_len=32,
             max_candidates=4,
-            max_ipa_len=32,
+            max_phoneme_len=32,
             batch_size=8,
             shuffle=False,
             seed=0,
@@ -264,20 +281,20 @@ def test_balance_training_oversamples_rare_wordid() -> None:
     recs.append(HomographRecord("X READ Y", "read", "read_rare", 2, 6))
     ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
     vocab = build_char_vocab_from_homograph_records(recs)
-    ipa_vocab = build_ipa_char_vocab_from_ordered_ipa(ordered_ipa)
+    phoneme_vocab = build_phoneme_vocab_from_ordered_ipa(ordered_ipa)
     rare_label = label_maps["read"]["read_rare"]
     ys: list[int] = []
     for b in iter_encoded_batches(
         recs,
         char_vocab=vocab,
-        ipa_char_vocab=ipa_vocab,
+        phoneme_vocab=phoneme_vocab,
         ordered_candidates=ordered,
         ordered_ipa=ordered_ipa,
         label_maps=label_maps,
         group_key="lower",
-        max_seq_len=64,
+        max_seq_len=32,
         max_candidates=4,
-        max_ipa_len=32,
+        max_phoneme_len=32,
         batch_size=1,
         shuffle=True,
         seed=123,
@@ -287,7 +304,6 @@ def test_balance_training_oversamples_rare_wordid() -> None:
         ys.extend(int(x) for x in b["labels"].tolist())
     assert len(ys) == len(recs)
     rare_count = sum(1 for y in ys if y == rare_label)
-    # Without balancing E[rare]≈1; inverse-frequency sampling targets E[rare]≈5 (high variance per epoch).
     assert rare_count >= 3
     assert rare_count > sum(1 for y in ys if y != rare_label) / 9
 
@@ -323,7 +339,7 @@ def test_train_resume_checkpoint() -> None:
             "--device",
             "cpu",
             "--max-seq-len",
-            "64",
+            "32",
             "--d-model",
             "64",
             "--n-layers",

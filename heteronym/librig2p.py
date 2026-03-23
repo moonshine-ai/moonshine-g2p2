@@ -23,7 +23,20 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterator
 
-from g2p_common import SPECIAL_PAD, CharVocab, inference_context_window
+from g2p_common import (
+    HETERONYM_CONTEXT_MAX_CHARS,
+    SPECIAL_PAD,
+    CharVocab,
+    heteronym_centered_context_window,
+)
+
+from heteronym.ipa_postprocess import ipa_string_to_phoneme_tokens
+from oov.data import (
+    SPECIAL_PHON_BOS,
+    SPECIAL_PHON_EOS,
+    SPECIAL_PHON_PAD,
+    PhonemeVocab,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -171,7 +184,7 @@ def save_training_artifacts(
     out_dir: Path | str,
     *,
     char_vocab: CharVocab,
-    ipa_char_vocab: CharVocab,
+    phoneme_vocab: PhonemeVocab,
     ordered_candidates: dict[str, list[str]],
     ordered_candidate_ipa: dict[str, list[str]],
     label_maps: dict[str, dict[str, int]],
@@ -183,8 +196,8 @@ def save_training_artifacts(
     out_dir.mkdir(parents=True, exist_ok=True)
     with (out_dir / "char_vocab.json").open("w", encoding="utf-8") as f:
         json.dump(char_vocab.stoi, f, ensure_ascii=False, indent=2)
-    with (out_dir / "ipa_char_vocab.json").open("w", encoding="utf-8") as f:
-        json.dump(ipa_char_vocab.stoi, f, ensure_ascii=False, indent=2)
+    with (out_dir / "phoneme_vocab.json").open("w", encoding="utf-8") as f:
+        json.dump(phoneme_vocab.stoi, f, ensure_ascii=False, indent=2)
     payload = {
         "max_candidates": max_candidates,
         "group_key": group_key,
@@ -193,7 +206,7 @@ def save_training_artifacts(
         "label_maps": label_maps,
     }
     with (out_dir / "homograph_index.json").open("w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2    )
+        json.dump(payload, f, ensure_ascii=False, indent=2)
 
 
 def build_char_vocab_from_homograph_records(
@@ -216,7 +229,7 @@ def build_ipa_char_vocab_from_ordered_ipa(
     *,
     extra_chars: str | None = None,
 ) -> CharVocab:
-    """Character vocabulary for IPA strings (per-candidate pronunciation text)."""
+    """Character vocabulary for IPA strings (legacy / tests); training uses :class:`PhonemeVocab`."""
     seen: set[str] = set()
     for lst in ordered_ipa.values():
         for s in lst:
@@ -227,13 +240,22 @@ def build_ipa_char_vocab_from_ordered_ipa(
     return CharVocab(sorted(seen))
 
 
+def build_phoneme_vocab_from_ordered_ipa(ordered_ipa: dict[str, list[str]]) -> PhonemeVocab:
+    """Collect phoneme tokens from all candidate IPA strings in the training index."""
+    seen: set[str] = set()
+    for lst in ordered_ipa.values():
+        for s in lst:
+            seen.update(ipa_string_to_phoneme_tokens(s))
+    return PhonemeVocab(sorted(seen))
+
+
 def max_encoded_ipa_len(
     ordered_ipa: dict[str, list[str]],
     ipa_char_vocab: CharVocab,
     *,
     cap: int,
 ) -> int:
-    """Longest IPA encoding length in the index, capped (at least 1)."""
+    """Longest IPA character encoding length in the index, capped (at least 1)."""
     m = 1
     for lst in ordered_ipa.values():
         for s in lst:
@@ -241,22 +263,37 @@ def max_encoded_ipa_len(
     return min(max(m, 1), cap)
 
 
+def max_encoded_phoneme_len(
+    ordered_ipa: dict[str, list[str]],
+    phoneme_vocab: PhonemeVocab,
+    *,
+    cap: int,
+) -> int:
+    """Longest gold phoneme id sequence length (+BOS/EOS) in the index, capped."""
+    m = 1
+    for lst in ordered_ipa.values():
+        for s in lst:
+            toks = tuple(ipa_string_to_phoneme_tokens(s))
+            enc = phoneme_vocab.encode_sequence(toks)
+            m = max(m, len(enc) + 2)
+    return min(max(m, 1), cap)
+
+
 def load_training_artifacts(
     dir_path: Path | str,
-) -> tuple[CharVocab, CharVocab, dict[str, list[str]], dict[str, list[str]], dict[str, dict[str, int]], int, str]:
+) -> tuple[CharVocab, PhonemeVocab, dict[str, list[str]], dict[str, list[str]], dict[str, dict[str, int]], int, str]:
     dir_path = Path(dir_path)
     with (dir_path / "char_vocab.json").open(encoding="utf-8") as f:
         stoi: dict[str, int] = json.load(f)
     cv = CharVocab.from_stoi(stoi)
-    ipa_path = dir_path / "ipa_char_vocab.json"
-    if not ipa_path.is_file():
+    phon_path = dir_path / "phoneme_vocab.json"
+    if not phon_path.is_file():
         raise FileNotFoundError(
-            f"{ipa_path} not found (required for heteronym IPA conditioning; "
-            "re-save artifacts with save_training_artifacts or retrain)."
+            f"{phon_path} not found (decoder heteronym runs require phoneme_vocab.json; retrain)."
         )
-    with ipa_path.open(encoding="utf-8") as f:
-        ipa_stoi: dict[str, int] = json.load(f)
-    ipa_cv = CharVocab.from_stoi(ipa_stoi)
+    with phon_path.open(encoding="utf-8") as f:
+        phon_stoi: dict[str, int] = json.load(f)
+    phon_cv = PhonemeVocab.from_stoi(phon_stoi)
     with (dir_path / "homograph_index.json").open(encoding="utf-8") as f:
         payload = json.load(f)
     ordered = payload["ordered_candidates"]
@@ -265,7 +302,7 @@ def load_training_artifacts(
         oci = {k: [ordered[k][i] for i in range(len(ordered[k]))] for k in ordered}
     return (
         cv,
-        ipa_cv,
+        phon_cv,
         ordered,
         oci,
         payload["label_maps"],
@@ -458,7 +495,9 @@ def apply_train_augmentation(
         return None
     punct = _allowed_noise_inserts(char_vocab)
     text, s, e = _safe_surface_noise(text, s, e, rng, surface_noise_prob, punct)
-    out = _random_context_window(text, s, e, max_seq_len, rng)
+    out = _random_context_window(
+        text, s, e, min(max_seq_len, HETERONYM_CONTEXT_MAX_CHARS), rng
+    )
     return out
 
 
@@ -504,7 +543,7 @@ def encode_ipa_candidate_slots(
     max_ipa_len: int,
 ) -> tuple[list[list[int]], list[list[bool]]]:
     """
-    Encode parallel IPA strings for each candidate index (length ``max_candidates``).
+    Encode parallel IPA strings for each candidate index (legacy helper).
 
     Invalid / padding candidate indices use an all-pad sequence with mask False.
     """
@@ -526,14 +565,14 @@ def iter_encoded_batches(
     records: list[HomographRecord],
     *,
     char_vocab: CharVocab,
-    ipa_char_vocab: CharVocab,
+    phoneme_vocab: PhonemeVocab,
     ordered_candidates: dict[str, list[str]],
     ordered_ipa: dict[str, list[str]],
     label_maps: dict[str, dict[str, int]],
     group_key: str,
     max_seq_len: int,
     max_candidates: int,
-    max_ipa_len: int,
+    max_phoneme_len: int,
     batch_size: int,
     shuffle: bool,
     seed: int,
@@ -559,10 +598,14 @@ def iter_encoded_batches(
     batch_span: list[list[float]] = []
     batch_cm: list[list[bool]] = []
     batch_y: list[int] = []
-    batch_ipa: list[list[list[int]]] = []
-    batch_ipa_attn: list[list[list[bool]]] = []
+    batch_dec_in: list[list[int]] = []
+    batch_dec_tgt: list[list[int]] = []
     batch_gkeys: list[str] = []
     batch_row_debug: list[dict[str, Any]] = []
+
+    bos = phoneme_vocab.stoi[SPECIAL_PHON_BOS]
+    eos = phoneme_vocab.stoi[SPECIAL_PHON_EOS]
+    pad_p = phoneme_vocab.stoi[SPECIAL_PHON_PAD]
 
     def flush() -> dict[str, Any] | None:
         if not batch_y:
@@ -585,12 +628,27 @@ def iter_encoded_batches(
         cm = []
         for row in batch_cm:
             cm.append(row + [False] * (max_candidates - len(row)))
+
+        dec_max = max(len(x) for x in batch_dec_in)
+        dec_max = min(dec_max, max_phoneme_len)
+        dec_in_pad: list[list[int]] = []
+        dec_tgt_pad: list[list[int]] = []
+        dec_key: list[list[int]] = []
+        for din, dtgt in zip(batch_dec_in, batch_dec_tgt):
+            din = din[:max_phoneme_len]
+            dtgt = dtgt[:max_phoneme_len]
+            p = dec_max - len(din)
+            dec_in_pad.append(din + [pad_p] * p)
+            dec_tgt_pad.append(dtgt + [-100] * p)
+            dec_key.append([1] * len(din) + [0] * p)
+
         out = {
             "input_ids": torch.tensor(ids, dtype=torch.long),
             "attention_mask": torch.tensor(mask, dtype=torch.bool),
             "span_mask": torch.tensor(span, dtype=torch.float32),
-            "ipa_input_ids": torch.tensor(batch_ipa, dtype=torch.long),
-            "ipa_attention_mask": torch.tensor(batch_ipa_attn, dtype=torch.bool),
+            "decoder_input_ids": torch.tensor(dec_in_pad, dtype=torch.long),
+            "decoder_labels": torch.tensor(dec_tgt_pad, dtype=torch.long),
+            "decoder_attention_mask": torch.tensor(dec_key, dtype=torch.bool),
             "candidate_mask": torch.tensor(cm, dtype=torch.bool),
             "labels": torch.tensor(batch_y, dtype=torch.long),
         }
@@ -602,8 +660,8 @@ def iter_encoded_batches(
         batch_span.clear()
         batch_cm.clear()
         batch_y.clear()
-        batch_ipa.clear()
-        batch_ipa_attn.clear()
+        batch_dec_in.clear()
+        batch_dec_tgt.clear()
         batch_gkeys.clear()
         batch_row_debug.clear()
         return out
@@ -631,11 +689,10 @@ def iter_encoded_batches(
         else:
             # Deterministic crop/pad so the homograph stays in-window (same as inference).
             # Plain ``text[:max_seq_len]`` drops late-span rows and yields n_tot=0 / acc 0.0.
-            win = inference_context_window(
+            win = heteronym_centered_context_window(
                 r.char_text,
                 r.homograph_char_start,
                 r.homograph_char_end,
-                max_seq_len,
             )
             if win is None:
                 continue
@@ -655,18 +712,19 @@ def iter_encoded_batches(
         cands = ordered_candidates[gkey]
         ipa_slots = ordered_ipa[gkey]
         cm = [True] * len(cands) + [False] * (max_candidates - len(cands))
-        ipa_ids, ipa_m = encode_ipa_candidate_slots(
-            ipa_char_vocab,
-            ipa_slots,
-            max_candidates=max_candidates,
-            max_ipa_len=max_ipa_len,
-        )
+        ipa_gold = ipa_slots[y]
+        ph_toks = tuple(ipa_string_to_phoneme_tokens(ipa_gold))
+        enc_ph = phoneme_vocab.encode_sequence(ph_toks)
+        if len(enc_ph) + 2 > max_phoneme_len:
+            continue
+        dec_in = [bos] + enc_ph
+        dec_tgt = enc_ph + [eos]
         batch_ids.append(ids)
         batch_span.append(span)
         batch_cm.append(cm)
         batch_y.append(y)
-        batch_ipa.append(ipa_ids)
-        batch_ipa_attn.append(ipa_m)
+        batch_dec_in.append(dec_in)
+        batch_dec_tgt.append(dec_tgt)
         if include_group_keys:
             batch_gkeys.append(gkey)
         if include_row_debug:

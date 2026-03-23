@@ -1,10 +1,10 @@
 """
-Compact Transformer encoder for heteronym disambiguation.
+Heteronym model: Transformer encoder over sentence context (span-marked) plus
+causal decoder predicting IPA phoneme tokens for the homograph (OOV-style).
 
-Pools hidden states over the marked grapheme span (similar in spirit to a
-single-word focus with sentence context), then scores each pronunciation
-alternative using pooled context and a mean-pooled embedding of that
-alternative's IPA character sequence.
+Training/validation use teacher-forced one-pass argmax phoneme sequences; validation
+maps those to a reading via Levenshtein among candidates. Inference scores each
+CMUdict alternative with teacher-forced NLL (:func:`~heteronym.teacher_force.pick_lowest_nll_cmudict_index`).
 """
 
 from __future__ import annotations
@@ -15,50 +15,35 @@ import torch.nn as nn
 
 class TinyHeteronymTransformer(nn.Module):
     """
-    Character-level Transformer over sentence context with additive span marking.
-
-    Parameters
-    ----------
-    vocab_size
-        Including special tokens (pad, unk, etc.).
-    max_seq_len
-        Maximum sequence length after tokenization (no CLS; span is in-char).
-    ipa_vocab_size
-        Separate char vocabulary for per-candidate IPA strings.
-    max_ipa_len
-        Max IPA characters per candidate slot (padded).
-    max_candidates
-        Upper bound on pronunciation alternatives per homograph (K). Model
-        always outputs this many logits; use a validity mask in the loss.
+    Encoder: self-attention over grapheme ids with additive span marking.
+    Decoder: causal self-attention + cross-attention; phoneme vocabulary logits.
     """
 
     def __init__(
         self,
-        vocab_size: int,
+        char_vocab_size: int,
+        phoneme_vocab_size: int,
         max_seq_len: int,
+        max_phoneme_len: int,
         *,
-        ipa_vocab_size: int,
-        max_ipa_len: int,
         d_model: int = 256,
         n_heads: int = 4,
-        n_layers: int = 4,
+        n_encoder_layers: int = 4,
+        n_decoder_layers: int = 4,
         dim_feedforward: int = 512,
-        max_candidates: int = 4,
         dropout: float = 0.1,
     ) -> None:
         super().__init__()
         if d_model % n_heads != 0:
             raise ValueError("d_model must be divisible by n_heads")
-        self.vocab_size = vocab_size
+        self.char_vocab_size = char_vocab_size
+        self.phoneme_vocab_size = phoneme_vocab_size
         self.max_seq_len = max_seq_len
-        self.ipa_vocab_size = ipa_vocab_size
-        self.max_ipa_len = max_ipa_len
+        self.max_phoneme_len = max_phoneme_len
         self.d_model = d_model
-        self.max_candidates = max_candidates
 
-        self.token_emb = nn.Embedding(vocab_size, d_model, padding_idx=0)
+        self.token_emb = nn.Embedding(char_vocab_size, d_model, padding_idx=0)
         self.pos_emb = nn.Embedding(max_seq_len, d_model)
-        # Learned marking for grapheme positions inside the homograph span
         self.span_bias = nn.Parameter(torch.zeros(d_model))
 
         enc_layer = nn.TransformerEncoderLayer(
@@ -70,17 +55,23 @@ class TinyHeteronymTransformer(nn.Module):
             batch_first=True,
             norm_first=True,
         )
-        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=n_layers)
+        self.encoder = nn.TransformerEncoder(enc_layer, num_layers=n_encoder_layers)
 
-        self.ipa_token_emb = nn.Embedding(ipa_vocab_size, d_model, padding_idx=0)
-        self.ipa_pos_emb = nn.Embedding(max_ipa_len, d_model)
-        self.ipa_ln = nn.LayerNorm(d_model)
-        self.ctx_ln = nn.LayerNorm(d_model)
-        self.ipa_ctx_score = nn.Linear(d_model, d_model, bias=False)
+        self.phon_emb = nn.Embedding(phoneme_vocab_size, d_model, padding_idx=0)
+        self.phon_pos = nn.Embedding(max_phoneme_len, d_model)
 
+        dec_layer = nn.TransformerDecoderLayer(
+            d_model=d_model,
+            nhead=n_heads,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
+            activation="gelu",
+            batch_first=True,
+            norm_first=True,
+        )
+        self.decoder = nn.TransformerDecoder(dec_layer, num_layers=n_decoder_layers)
+        self.lm_head = nn.Linear(d_model, phoneme_vocab_size)
         self.drop = nn.Dropout(dropout)
-        self.ipa_drop = nn.Dropout(dropout)
-
         self._reset_parameters()
 
     def _reset_parameters(self) -> None:
@@ -89,96 +80,52 @@ class TinyHeteronymTransformer(nn.Module):
             with torch.no_grad():
                 self.token_emb.weight[self.token_emb.padding_idx].zero_()
         nn.init.normal_(self.pos_emb.weight, mean=0.0, std=0.02)
-        nn.init.normal_(self.ipa_token_emb.weight, mean=0.0, std=0.02)
-        if self.ipa_token_emb.padding_idx is not None:
+        nn.init.normal_(self.phon_emb.weight, mean=0.0, std=0.02)
+        if self.phon_emb.padding_idx is not None:
             with torch.no_grad():
-                self.ipa_token_emb.weight[self.ipa_token_emb.padding_idx].zero_()
-        nn.init.normal_(self.ipa_pos_emb.weight, mean=0.0, std=0.02)
+                self.phon_emb.weight[self.phon_emb.padding_idx].zero_()
+        nn.init.normal_(self.phon_pos.weight, mean=0.0, std=0.02)
 
     def forward(
         self,
-        input_ids: torch.Tensor,
-        attention_mask: torch.Tensor,
+        encoder_input_ids: torch.Tensor,
+        encoder_attention_mask: torch.Tensor,
         span_mask: torch.Tensor,
-        ipa_input_ids: torch.Tensor,
-        ipa_attention_mask: torch.Tensor,
+        decoder_input_ids: torch.Tensor,
+        decoder_attention_mask: torch.Tensor,
     ) -> torch.Tensor:
         """
-        Parameters
-        ----------
-        input_ids
-            Long tensor [batch, seq_len] token ids.
-        attention_mask
-            Bool or 0/1 [batch, seq_len]; 1 = real token, 0 = pad.
-        span_mask
-            Float or bool [batch, seq_len]; non-zero = inside homograph span.
-        ipa_input_ids
-            Long [batch, K, ipa_len] IPA char ids per candidate.
-        ipa_attention_mask
-            Bool [batch, K, ipa_len]; True = real IPA char.
-
-        Returns
-        -------
-        logits
-            [batch, max_candidates]
+        Returns phoneme logits ``[batch, decoder_len, phoneme_vocab_size]``.
         """
-        b, t = input_ids.shape
-        if t > self.max_seq_len:
-            raise ValueError(f"seq_len {t} > max_seq_len {self.max_seq_len}")
+        b, t_enc = encoder_input_ids.shape
+        b2, t_dec = decoder_input_ids.shape
+        if b != b2:
+            raise ValueError(f"encoder batch {b} != decoder batch {b2}")
+        if t_enc > self.max_seq_len:
+            raise ValueError(f"encoder seq_len {t_enc} > max_seq_len {self.max_seq_len}")
+        if t_dec > self.max_phoneme_len:
+            raise ValueError(f"decoder seq_len {t_dec} > max_phoneme_len {self.max_phoneme_len}")
 
-        positions = torch.arange(t, device=input_ids.device).clamp(max=self.max_seq_len - 1)
+        positions = torch.arange(t_enc, device=encoder_input_ids.device).clamp(max=self.max_seq_len - 1)
         pos = self.pos_emb(positions).unsqueeze(0).expand(b, -1, -1)
-        x = self.token_emb(input_ids) + pos
-
+        x = self.token_emb(encoder_input_ids) + pos
         sm = span_mask.to(dtype=x.dtype, device=x.device).unsqueeze(-1)
         x = x + sm * self.span_bias
         x = self.drop(x)
 
-        pad = attention_mask == 0
-        h = self.encoder(x, src_key_padding_mask=pad)
+        enc_pad = encoder_attention_mask == 0
+        memory = self.encoder(x, src_key_padding_mask=enc_pad)
 
-        sm_f = span_mask.to(dtype=h.dtype, device=h.device).unsqueeze(-1)
-        denom = sm_f.sum(dim=1).clamp(min=1e-6)
-        pooled = (h * sm_f).sum(dim=1) / denom
-        pooled = self.ctx_ln(pooled)
+        ppos = torch.arange(t_dec, device=decoder_input_ids.device).clamp(max=self.max_phoneme_len - 1)
+        tgt = self.drop(self.phon_emb(decoder_input_ids) + self.phon_pos(ppos).unsqueeze(0))
 
-        bk, k_slot, ipa_t = ipa_input_ids.shape
-        if bk != b:
-            raise ValueError(f"ipa batch {bk} != context batch {b}")
-        if k_slot != self.max_candidates:
-            raise ValueError(f"ipa K {k_slot} != max_candidates {self.max_candidates}")
-        if ipa_t > self.max_ipa_len:
-            raise ValueError(f"ipa_len {ipa_t} > max_ipa_len {self.max_ipa_len}")
-
-        ipa_flat = ipa_input_ids.reshape(b * self.max_candidates, ipa_t)
-        ipa_m = ipa_attention_mask.reshape(b * self.max_candidates, ipa_t)
-        ipa_pos = torch.arange(ipa_t, device=ipa_input_ids.device).clamp(max=self.max_ipa_len - 1)
-        ipa_pos_e = self.ipa_pos_emb(ipa_pos).unsqueeze(0).expand(b * self.max_candidates, -1, -1)
-        ipa_h = self.ipa_token_emb(ipa_flat) + ipa_pos_e
-        ipa_h = self.ipa_drop(ipa_h)
-        m_f = ipa_m.to(dtype=ipa_h.dtype).unsqueeze(-1)
-        ipa_denom = m_f.sum(dim=1).clamp(min=1e-6)
-        ipa_pooled = (ipa_h * m_f).sum(dim=1) / ipa_denom
-        ipa_pooled = ipa_pooled.view(b, self.max_candidates, self.d_model)
-        ipa_pooled = self.ipa_ln(ipa_pooled)
-
-        ctx_proj = self.ipa_ctx_score(pooled)
-        logits = (ipa_pooled * ctx_proj.unsqueeze(1)).sum(dim=-1)
-        return logits
-
-
-def masked_candidate_loss(
-    logits: torch.Tensor,
-    target: torch.Tensor,
-    candidate_mask: torch.Tensor,
-) -> torch.Tensor:
-    """
-    Cross-entropy where invalid candidate slots are masked out (NeMo-style).
-
-    logits: [B, K]
-    target: [B] in 0..K-1
-    candidate_mask: [B, K] bool, True where that candidate is valid for the row.
-    """
-    neg_inf = torch.finfo(logits.dtype).min / 4
-    masked = logits.masked_fill(~candidate_mask, neg_inf)
-    return nn.functional.cross_entropy(masked, target)
+        causal = nn.Transformer.generate_square_subsequent_mask(t_dec, device=decoder_input_ids.device)
+        dec_pad = decoder_attention_mask == 0
+        out = self.decoder(
+            tgt,
+            memory,
+            tgt_mask=causal,
+            tgt_key_padding_mask=dec_pad,
+            memory_key_padding_mask=enc_pad,
+        )
+        return self.lm_head(out)

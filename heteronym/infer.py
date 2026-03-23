@@ -14,9 +14,10 @@ if str(_REPO_ROOT) not in sys.path:
 
 import torch
 
-from g2p_common import SPECIAL_PAD, inference_context_window
-from heteronym.librig2p import encode_ipa_candidate_slots, load_training_artifacts
+from g2p_common import SPECIAL_PAD, heteronym_centered_context_window
+from heteronym.librig2p import load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
+from heteronym.teacher_force import pick_lowest_nll_cmudict_index
 
 
 def _normalize_ipa_compare(s: str) -> str:
@@ -27,13 +28,15 @@ def _snap_from_train_config(cfg: dict[str, Any]) -> dict[str, object]:
     return {
         "max_seq_len": int(cfg["max_seq_len"]),
         "max_candidates": int(cfg["max_candidates"]),
-        "max_ipa_len": int(cfg.get("max_ipa_len", 64)),
+        "max_phoneme_len": int(cfg.get("max_phoneme_len", cfg.get("max_ipa_len", 64))),
         "group_key": str(cfg["group_key"]),
         "d_model": int(cfg["d_model"]),
         "n_heads": int(cfg["n_heads"]),
         "n_layers": int(cfg["n_layers"]),
+        "n_decoder_layers": int(cfg.get("n_decoder_layers", cfg["n_layers"])),
         "ffn_dim": int(cfg["ffn_dim"]),
         "dropout": float(cfg["dropout"]),
+        "levenshtein_extra_phonemes": int(cfg.get("levenshtein_extra_phonemes", 4)),
     }
 
 
@@ -80,8 +83,8 @@ def _resolve_snap_and_state_dict(path: Path, ckpt: dict[str, Any]) -> tuple[dict
             f"checkpoint missing args_snapshot: {path}. Use checkpoint.pt, or keep "
             f"train_config.json (or checkpoint.pt) in the same directory as model.pt."
         )
-    if isinstance(snap, dict) and "max_ipa_len" not in snap:
-        snap = {**snap, "max_ipa_len": 64}
+    if isinstance(snap, dict) and "max_phoneme_len" not in snap and "max_ipa_len" in snap:
+        snap = {**snap, "max_phoneme_len": int(snap["max_ipa_len"])}
     return snap, state
 
 
@@ -104,7 +107,7 @@ def match_prediction_to_cmudict_ipa(predicted: str, alts: list[str]) -> str | No
 class HeteronymDisambiguator:
     """
     Loads ``checkpoint.pt`` (full training checkpoint) and sibling
-    ``char_vocab.json``, ``ipa_char_vocab.json``, and ``homograph_index.json``
+    ``char_vocab.json``, ``phoneme_vocab.json``, and ``homograph_index.json``
     from the same directory.
     """
 
@@ -115,7 +118,7 @@ class HeteronymDisambiguator:
         artifacts_dir = self._path.parent
         (
             self._char_vocab,
-            self._ipa_char_vocab,
+            self._phoneme_vocab,
             self._ordered,
             self._ordered_ipa,
             self._label_maps,
@@ -128,7 +131,7 @@ class HeteronymDisambiguator:
         snap, state_dict = _resolve_snap_and_state_dict(self._path, ckpt)
 
         self._max_seq_len = int(snap["max_seq_len"])
-        self._max_ipa_len = int(snap.get("max_ipa_len", 64))
+        self._max_phoneme_len = int(snap.get("max_phoneme_len", snap.get("max_ipa_len", 64)))
         if int(snap["max_candidates"]) != self._max_candidates:
             raise ValueError(
                 "checkpoint max_candidates does not match homograph_index.json "
@@ -140,19 +143,22 @@ class HeteronymDisambiguator:
                 f"homograph_index.json {self._group_key!r}"
             )
 
+        n_enc = int(snap["n_layers"])
+        n_dec = int(snap.get("n_decoder_layers", n_enc))
+
         dev = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self._device = torch.device(dev)
 
         self._model = TinyHeteronymTransformer(
-            vocab_size=len(self._char_vocab),
+            char_vocab_size=len(self._char_vocab),
+            phoneme_vocab_size=len(self._phoneme_vocab),
             max_seq_len=self._max_seq_len,
-            ipa_vocab_size=len(self._ipa_char_vocab),
-            max_ipa_len=self._max_ipa_len,
+            max_phoneme_len=self._max_phoneme_len,
             d_model=int(snap["d_model"]),
             n_heads=int(snap["n_heads"]),
-            n_layers=int(snap["n_layers"]),
+            n_encoder_layers=n_enc,
+            n_decoder_layers=n_dec,
             dim_feedforward=int(snap["ffn_dim"]),
-            max_candidates=self._max_candidates,
             dropout=float(snap["dropout"]),
         )
         self._model.load_state_dict(state_dict)
@@ -169,8 +175,8 @@ class HeteronymDisambiguator:
         cmudict_alternatives: list[str],
     ) -> str:
         """
-        Return one IPA string from *cmudict_alternatives* using the model when the
-        homograph is in the training index; otherwise the first alternative.
+        Score each *cmudict_alternative* with mean teacher-forced NLL under the model,
+        then return the lowest-loss pronunciation (canonicalized to *alts*).
         """
         if len(cmudict_alternatives) <= 1:
             return cmudict_alternatives[0] if cmudict_alternatives else ""
@@ -183,9 +189,7 @@ class HeteronymDisambiguator:
         if gkey not in self._ordered:
             return cmudict_alternatives[0]
 
-        win = inference_context_window(
-            full_text, span_s, span_e, self._max_seq_len, max_left_pad=48
-        )
+        win = heteronym_centered_context_window(full_text, span_s, span_e)
         if win is None:
             return cmudict_alternatives[0]
         window_text, ws, we = win
@@ -206,34 +210,21 @@ class HeteronymDisambiguator:
         if sum(span) < 1.0:
             return cmudict_alternatives[0]
 
-        cands = self._ordered[gkey]
-        ipa_slots = self._ordered_ipa[gkey]
-        cm = [True] * len(cands) + [False] * (self._max_candidates - len(cands))
-        ipa_ids, ipa_m = encode_ipa_candidate_slots(
-            self._ipa_char_vocab,
-            ipa_slots,
-            max_candidates=self._max_candidates,
-            max_ipa_len=self._max_ipa_len,
-        )
-
         with torch.no_grad():
             input_ids = torch.tensor([ids], dtype=torch.long, device=self._device)
             attention_mask = torch.tensor([attn], dtype=torch.bool, device=self._device)
             span_mask = torch.tensor([span], dtype=torch.float32, device=self._device)
-            ipa_input_ids = torch.tensor([ipa_ids], dtype=torch.long, device=self._device)
-            ipa_attention_mask = torch.tensor([ipa_m], dtype=torch.bool, device=self._device)
-            logits = self._model(
-                input_ids,
-                attention_mask,
-                span_mask,
-                ipa_input_ids,
-                ipa_attention_mask,
+            best_i = pick_lowest_nll_cmudict_index(
+                self._model,
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                span_mask=span_mask,
+                cmudict_alternatives=cmudict_alternatives,
+                phoneme_vocab=self._phoneme_vocab,
+                max_phoneme_len=self._max_phoneme_len,
+                device=self._device,
             )
-            neg_inf = torch.finfo(logits.dtype).min / 4
-            cm_t = torch.tensor([cm], dtype=torch.bool, device=self._device)
-            masked = logits.masked_fill(~cm_t, neg_inf)
-            pred = int(masked.argmax(dim=-1).item())
 
-        predicted = cands[pred] if 0 <= pred < len(cands) else cands[0]
-        matched = match_prediction_to_cmudict_ipa(predicted, cmudict_alternatives)
+        raw = cmudict_alternatives[best_i]
+        matched = match_prediction_to_cmudict_ipa(raw, cmudict_alternatives)
         return matched if matched is not None else cmudict_alternatives[0]

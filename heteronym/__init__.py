@@ -1,4 +1,4 @@
-"""Heteronym / homograph disambiguation for G2P (small Transformer classifier)."""
+"""Heteronym / homograph disambiguation for G2P (encoder–decoder phoneme model)."""
 
 from .model import TinyHeteronymTransformer
 
