@@ -9,7 +9,8 @@ see `flexthink/librig2p-nostress-space <https://huggingface.co/datasets/flexthin
 For other corpora (e.g. `IPA-CHILDES <https://huggingface.co/datasets/phonemetransformers/IPA-CHILDES>`_),
 add a thin adapter that yields :class:`HomographRecord` (sentence text, surface
 homograph, word-id label, character span). Grouping and labels stay
-data-driven via :func:`build_homograph_candidate_tables`.
+data-driven via :func:`build_homograph_candidate_tables` (candidates ordered by
+training frequency, most common first).
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ import json
 import logging
 from dataclasses import dataclass
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -127,8 +128,12 @@ def build_homograph_candidate_tables(
     group_key: str = "lower",
 ) -> tuple[dict[str, list[str]], dict[str, dict[str, int]], dict[str, list[str]]]:
     """
-    For each surface homograph key, collect sorted unique `homograph_wordid`
-    strings and map each id to a class index in 0..K-1.
+    For each surface homograph key, collect unique ``homograph_wordid`` strings
+    from *records* and map each id to a class index in 0..K-1.
+
+    Alternatives are ordered by **descending frequency** in *records* (most
+    common ``homograph_wordid`` → class index 0). Ties break on ``homograph_wordid``
+    lexicographically so ordering is stable.
 
     Also returns ``ordered_ipa``: for each key, parallel list of IPA (phoneme)
     strings in candidate index order (same slots as ``ordered``).
@@ -139,16 +144,18 @@ def build_homograph_candidate_tables(
         ``exact`` — use homograph field verbatim.
     """
     wid_ipa = _wordid_to_ipa_map(records, group_key=group_key)
+    pair_counts: dict[tuple[str, str], int] = defaultdict(int)
     groups: dict[str, set[str]] = {}
     for r in records:
         key = r.homograph.lower() if group_key == "lower" else r.homograph
         groups.setdefault(key, set()).add(r.homograph_wordid)
+        pair_counts[(key, r.homograph_wordid)] += 1
 
     ordered: dict[str, list[str]] = {}
     ordered_ipa: dict[str, list[str]] = {}
     label_maps: dict[str, dict[str, int]] = {}
     for key, ids in groups.items():
-        lst = sorted(ids)
+        lst = sorted(ids, key=lambda w: (-pair_counts[(key, w)], w))
         if len(lst) > max_candidates:
             raise ValueError(
                 f"homograph {key!r} has {len(lst)} pronunciations "
@@ -269,6 +276,59 @@ def load_training_artifacts(
 
 def _group_key_for_record(r: HomographRecord, group_key: str) -> str:
     return r.homograph.lower() if group_key == "lower" else r.homograph
+
+
+def cap_alternative_class_spread(
+    records: list[HomographRecord],
+    *,
+    group_key: str,
+    max_spread: int,
+    seed: int,
+) -> tuple[list[HomographRecord], int]:
+    """
+    Cap class imbalance **within each surface homograph key**.
+
+    For every key that has two or more distinct ``homograph_wordid`` values in
+    *records*, let *m* be the smallest bucket size among those word ids. Keep
+    at most *m + max_spread* rows per word id, dropping extras from larger
+    buckets (random subset, deterministic *seed*). Keys with a single word id
+    are unchanged.
+
+    Thus for any two alternatives that both appear, their counts differ by at
+    most ``max_spread``.
+
+    Returns
+    -------
+    capped_records, n_discarded
+    """
+    if max_spread <= 0:
+        return records, 0
+    rng = random.Random(seed)
+    by_g: dict[str, list[HomographRecord]] = defaultdict(list)
+    for r in records:
+        by_g[_group_key_for_record(r, group_key)].append(r)
+    out: list[HomographRecord] = []
+    discarded = 0
+    for _gk, grecs in by_g.items():
+        by_wid: dict[str, list[HomographRecord]] = defaultdict(list)
+        for r in grecs:
+            by_wid[r.homograph_wordid].append(r)
+        if len(by_wid) < 2:
+            out.extend(grecs)
+            continue
+        m = min(len(rs) for rs in by_wid.values())
+        cap = m + max_spread
+        for _wid, rs in by_wid.items():
+            if len(rs) <= cap:
+                out.extend(rs)
+                continue
+            rs_mut = list(rs)
+            rng.shuffle(rs_mut)
+            keep = rs_mut[:cap]
+            out.extend(keep)
+            discarded += len(rs) - cap
+    rng.shuffle(out)
+    return out, discarded
 
 
 def _allowed_noise_inserts(char_vocab: CharVocab) -> set[str]:
@@ -481,6 +541,7 @@ def iter_encoded_batches(
     balance_training: bool = False,
     surface_noise_prob: float = 0.3,
     include_group_keys: bool = False,
+    include_row_debug: bool = False,
 ) -> Iterator[dict[str, Any]]:
     rng = random.Random(seed)
     train_augment = bool(train_augment and shuffle)
@@ -501,6 +562,7 @@ def iter_encoded_batches(
     batch_ipa: list[list[list[int]]] = []
     batch_ipa_attn: list[list[list[bool]]] = []
     batch_gkeys: list[str] = []
+    batch_row_debug: list[dict[str, Any]] = []
 
     def flush() -> dict[str, Any] | None:
         if not batch_y:
@@ -534,6 +596,8 @@ def iter_encoded_batches(
         }
         if include_group_keys:
             out["group_keys"] = list(batch_gkeys)
+        if include_row_debug:
+            out["row_debug"] = list(batch_row_debug)
         batch_ids.clear()
         batch_span.clear()
         batch_cm.clear()
@@ -541,6 +605,7 @@ def iter_encoded_batches(
         batch_ipa.clear()
         batch_ipa_attn.clear()
         batch_gkeys.clear()
+        batch_row_debug.clear()
         return out
 
     for i in idx:
@@ -604,6 +669,23 @@ def iter_encoded_batches(
         batch_ipa_attn.append(ipa_m)
         if include_group_keys:
             batch_gkeys.append(gkey)
+        if include_row_debug:
+            hs = char_text[s:e] if 0 <= s < e <= len(char_text) else ""
+            batch_row_debug.append(
+                {
+                    "full_char_text": r.char_text,
+                    "context_window": char_text,
+                    "window_span_start": int(s),
+                    "window_span_end": int(e),
+                    "homograph_surface_in_window": hs,
+                    "homograph_field": r.homograph,
+                    "homograph_group_key": gkey,
+                    "homograph_wordid_gold": r.homograph_wordid,
+                    "homograph_wordid_ipa": r.homograph_wordid_ipa,
+                    "homograph_char_start_full": int(r.homograph_char_start),
+                    "homograph_char_end_full": int(r.homograph_char_end),
+                }
+            )
         if len(batch_y) >= batch_size:
             b = flush()
             if b is not None:

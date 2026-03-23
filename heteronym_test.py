@@ -17,6 +17,7 @@ from heteronym.librig2p import (
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
     build_ipa_char_vocab_from_ordered_ipa,
+    cap_alternative_class_spread,
     iter_encoded_batches,
     load_homograph_json,
     load_training_artifacts,
@@ -47,6 +48,17 @@ def _tiny_json_path() -> Path:
     p = Path(d) / "h.json"
     p.write_text(json.dumps(data), encoding="utf-8")
     return p
+
+
+def test_build_tables_orders_by_training_frequency() -> None:
+    recs = [
+        HomographRecord("x", "tag", "zebra", 0, 1),
+        HomographRecord("y", "tag", "zebra", 0, 1),
+        HomographRecord("z", "tag", "alpha", 0, 1),
+    ]
+    ordered, maps, _ = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
+    assert ordered["tag"] == ["zebra", "alpha"]
+    assert maps["tag"]["zebra"] == 0 and maps["tag"]["alpha"] == 1
 
 
 def test_load_and_tables() -> None:
@@ -180,6 +192,24 @@ def test_random_crop_keeps_span_in_window() -> None:
         assert t2[s2:e2] == "READ"
 
 
+def test_cap_alternative_class_spread_discards_from_majority() -> None:
+    many = [
+        HomographRecord("x", "live", "lˈaɪv", 0, 1),
+    ] * 100
+    few = [
+        HomographRecord("y", "live", "lˈɪv", 0, 1),
+    ] * 5
+    recs = many + few
+    out, disc = cap_alternative_class_spread(recs, group_key="lower", max_spread=10, seed=0)
+    assert disc == 85
+    assert len(out) == 5 + 15
+    by_w: dict[str, int] = {}
+    for r in out:
+        by_w[r.homograph_wordid] = by_w.get(r.homograph_wordid, 0) + 1
+    assert by_w["lˈɪv"] == 5
+    assert by_w["lˈaɪv"] == 15
+
+
 def test_iter_encoded_batches_includes_group_keys_when_asked() -> None:
     recs = load_homograph_json(_tiny_json_path())
     ordered, label_maps, ordered_ipa = build_homograph_candidate_tables(recs, max_candidates=4, group_key="lower")
@@ -205,6 +235,26 @@ def test_iter_encoded_batches_includes_group_keys_when_asked() -> None:
     )
     assert batches
     assert batches[0]["group_keys"] == ["read", "read"]
+    batches_meta = list(
+        iter_encoded_batches(
+            recs,
+            char_vocab=vocab,
+            ipa_char_vocab=ipa_vocab,
+            ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
+            label_maps=label_maps,
+            group_key="lower",
+            max_seq_len=64,
+            max_candidates=4,
+            max_ipa_len=32,
+            batch_size=8,
+            shuffle=False,
+            seed=0,
+            include_group_keys=True,
+            include_row_debug=True,
+        )
+    )
+    assert batches_meta[0]["row_debug"][0]["homograph_wordid_gold"] == "read_vrb"
 
 
 def test_balance_training_oversamples_rare_wordid() -> None:

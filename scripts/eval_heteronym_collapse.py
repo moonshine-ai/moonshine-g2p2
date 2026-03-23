@@ -23,6 +23,9 @@ Pass ``--train-json`` with the same homograph JSON used to build ``homograph_ind
 to add **tr_dom**: the maximum marginal mass of the **gold** label on the training split
 per key (prevalence of the most common alternative). Compare **tr_dom** to **p_dom** /
 **ipa_dom** on eval to see whether the model is simply matching training skew.
+The script prints two top-``--top`` tables (same columns, including ``tr_dom`` when
+``--train-json`` is set): first sorted by prediction dominance, then by eval row count.
+
 Use ``--json-out collapse.json`` for machine-readable summaries.
 """
 
@@ -385,18 +388,24 @@ def main(argv: list[str] | None = None) -> None:
         print(f"  {c:6d}  {ipa!r}")
     print()
 
+    def _fmt_tr_dom(r: dict[str, object]) -> str:
+        tr = r["train_gold_index_dominance_mass"]
+        if train_hist is None:
+            return f"{'—':>7}"
+        if isinstance(tr, (int, float)):
+            return f"{float(tr):>7.3f}"
+        return f"{'—':>7}"
+
+    table_hdr = (
+        f"  {'key':<16} {'n':>5} {'k':>2} {'acc':>5} {'p_dom':>6} {'ipa_dom':>7} {'tr_dom':>7}  "
+        "dominant_pred_ipa"
+    )
+
     print(
         f"ambiguous keys (>=2 pronunciation slots), n >= {args.min_support}, "
         f"by pred_index_collapse_mass (top {args.top})"
     )
-    if args.train_json is not None:
-        hdr = (
-            f"  {'key':<16} {'n':>5} {'k':>2} {'acc':>5} {'p_dom':>6} {'ipa_dom':>7} {'tr_dom':>7}  "
-            "dominant_pred_ipa"
-        )
-    else:
-        hdr = f"  {'key':<18} {'n':>6} {'k':>3} {'acc':>6} {'p_dom':>6} {'ipa_dom':>6}  ipa"
-    print(hdr)
+    print(table_hdr)
     shown = 0
     for r in key_rows:
         if int(r["n_candidates"]) < 2:
@@ -405,30 +414,19 @@ def main(argv: list[str] | None = None) -> None:
             continue
         if shown >= args.top:
             break
-        if args.train_json is not None:
-            tr = r["train_gold_index_dominance_mass"]
-            tr_s = f"{float(tr):.3f}" if isinstance(tr, (int, float)) else "  —  "
-            print(
-                f"  {str(r['homograph_key']):<16} {int(r['n']):>5} {int(r['n_candidates']):>2} "
-                f"{float(r['accuracy']):>5.3f} {float(r['pred_index_collapse_mass']):>6.3f} "
-                f"{float(r['pred_ipa_collapse_mass']):>7.3f} {tr_s:>7}  {r['pred_ipa_dominant']!r}"
-            )
-        else:
-            print(
-                f"  {str(r['homograph_key']):<18} {int(r['n']):>6} {int(r['n_candidates']):>3} "
-                f"{float(r['accuracy']):>6.3f} {float(r['pred_index_collapse_mass']):>6.3f} "
-                f"{float(r['pred_ipa_collapse_mass']):>6.3f}  {r['pred_ipa_dominant']!r}"
-            )
+        print(
+            f"  {str(r['homograph_key']):<16} {int(r['n']):>5} {int(r['n_candidates']):>2} "
+            f"{float(r['accuracy']):>5.3f} {float(r['pred_index_collapse_mass']):>6.3f} "
+            f"{float(r['pred_ipa_collapse_mass']):>7.3f} {_fmt_tr_dom(r)}  {r['pred_ipa_dominant']!r}"
+        )
         shown += 1
     if shown == 0:
         print("  (none)")
-    if args.train_json is not None:
-        print()
-        print(
-            "  tr_dom = share of training rows for this homograph whose gold label is the "
-            "single most frequent class (same index ordering as homograph_index.json). "
-            "Compare to p_dom / ipa_dom on eval."
-        )
+    print()
+    print(
+        "  tr_dom = training plurality mass for this homograph (needs --train-json; else —). "
+        "Compare to p_dom / ipa_dom on eval."
+    )
 
     ambiguous_keys = [r for r in key_rows if int(r["n_candidates"]) >= 2]
     fully_collapsed = [
@@ -444,6 +442,30 @@ def main(argv: list[str] | None = None) -> None:
         f"among ambiguous keys, 100% of preds on one class index: "
         f"{len(fully_collapsed)} / {len(ambiguous_keys)}"
     )
+
+    by_n = sorted(
+        (r for r in key_rows if int(r["n_candidates"]) >= 2 and int(r["n"]) >= args.min_support),
+        key=lambda r: int(r["n"]),
+        reverse=True,
+    )
+    print()
+    print(
+        f"same columns: top {args.top} ambiguous keys by eval support n "
+        f"(n >= {args.min_support})"
+    )
+    print(table_hdr)
+    shown_n = 0
+    for r in by_n:
+        if shown_n >= args.top:
+            break
+        print(
+            f"  {str(r['homograph_key']):<16} {int(r['n']):>5} {int(r['n_candidates']):>2} "
+            f"{float(r['accuracy']):>5.3f} {float(r['pred_index_collapse_mass']):>6.3f} "
+            f"{float(r['pred_ipa_collapse_mass']):>7.3f} {_fmt_tr_dom(r)}  {r['pred_ipa_dominant']!r}"
+        )
+        shown_n += 1
+    if shown_n == 0:
+        print("  (none)")
 
     if args.json_out is not None:
         out = {

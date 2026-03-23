@@ -21,9 +21,17 @@ Data files are fetched from the Hugging Face dataset repo via huggingface_hub
 ``--train-json`` is omitted.
 
 Training defaults: random context windows / left-padding, safe surface noise
-outside the homograph span, and inverse-frequency balancing over
-``(homograph, homograph_wordid)``. Disable with ``--no-train-augment`` /
-``--no-balance-train``.
+outside the homograph span, **capping per-homograph class imbalance** so no two
+alternatives differ by more than ``--max-alternative-spread`` examples (excess
+rows from larger classes are dropped); candidate indices follow **training**
+frequency (most common ``homograph_wordid`` → slot 0) after that cap;
+inverse-frequency balancing over
+``(homograph, homograph_wordid)``. Disable augmentation / balancing with
+``--no-train-augment`` / ``--no-balance-train``; disable the cap with
+``--max-alternative-spread 0``.
+
+Use ``--valid-debug-json PATH`` to write misclassified validation rows each epoch
+(context window, gold vs pred, logits, softmax); optional ``--valid-debug-max-errors``.
 """
 
 from __future__ import annotations
@@ -33,8 +41,9 @@ import json
 import logging
 import random
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
+from typing import Any
 
 import torch
 from torch.optim import AdamW
@@ -44,6 +53,7 @@ from heteronym.librig2p import (
     build_char_vocab_from_homograph_records,
     build_homograph_candidate_tables,
     build_ipa_char_vocab_from_ordered_ipa,
+    cap_alternative_class_spread,
     download_librig2p_homograph_split,
     iter_encoded_batches,
     load_homograph_json,
@@ -77,6 +87,7 @@ _CKPT_ARG_KEYS = (
     "train_json",
     "valid_json",
     "valid_fraction",
+    "max_alternative_spread",
 )
 
 
@@ -102,6 +113,8 @@ def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace
             continue
         # Checkpoints from before valid_fraction was tracked
         if k == "valid_fraction" and s is None:
+            continue
+        if k == "max_alternative_spread" and s is None:
             continue
         mismatches.append(k)
     if mismatches:
@@ -237,6 +250,30 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="when --valid-json is omitted: fraction of each (homograph, wordid) group "
         "held out for validation (deterministic given --seed)",
     )
+    p.add_argument(
+        "--valid-debug-json",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="after each epoch's validation, write misclassified examples (context, labels, "
+        "logits, softmax) to this JSON file for error analysis",
+    )
+    p.add_argument(
+        "--valid-debug-max-errors",
+        type=int,
+        default=5000,
+        metavar="M",
+        help="cap rows written to --valid-debug-json (remaining errors counted only in summary)",
+    )
+    p.add_argument(
+        "--max-alternative-spread",
+        type=int,
+        default=10,
+        metavar="D",
+        help="per homograph surface key, after splitting train/valid: each homograph_wordid "
+        "keeps at most (min wordid count + D) training rows; extra rows from larger classes "
+        "are discarded (random, seeded). 0 disables.",
+    )
     return p.parse_args(argv)
 
 
@@ -279,6 +316,118 @@ def _split_train_valid(
     return train_out, valid_out
 
 
+def _run_validation(
+    model: TinyHeteronymTransformer,
+    records,
+    *,
+    char_vocab,
+    ipa_char_vocab,
+    ordered,
+    ordered_ipa,
+    label_maps,
+    group_key: str,
+    max_seq_len: int,
+    max_candidates: int,
+    max_ipa_len: int,
+    batch_size: int,
+    device: torch.device,
+    collect_errors: bool,
+    max_errors: int,
+) -> tuple[float, int, int, list[dict[str, Any]] | None, int]:
+    """
+    Returns (accuracy, n_ok, n_tot, errors_or_none, n_errors_total).
+
+    When *collect_errors* is True, *errors_or_none* lists up to *max_errors* misclassified
+    rows with context, gold/pred labels, logits, and softmax probabilities.
+    *n_errors_total* is the full wrong count (even when the error list is capped).
+    """
+    model.eval()
+    n_ok = 0
+    n_tot = 0
+    errors: list[dict[str, Any]] | None = [] if collect_errors else None
+    n_errors_total = 0
+    neg_inf = torch.finfo(torch.float32).min / 4
+    with torch.no_grad():
+        for batch in iter_encoded_batches(
+            records,
+            char_vocab=char_vocab,
+            ipa_char_vocab=ipa_char_vocab,
+            ordered_candidates=ordered,
+            ordered_ipa=ordered_ipa,
+            label_maps=label_maps,
+            group_key=group_key,
+            max_seq_len=max_seq_len,
+            max_candidates=max_candidates,
+            max_ipa_len=max_ipa_len,
+            batch_size=batch_size,
+            shuffle=False,
+            seed=0,
+            include_group_keys=collect_errors,
+            include_row_debug=collect_errors,
+        ):
+            logits = model(
+                batch["input_ids"].to(device),
+                batch["attention_mask"].to(device),
+                batch["span_mask"].to(device),
+                batch["ipa_input_ids"].to(device),
+                batch["ipa_attention_mask"].to(device),
+            )
+            cm = batch["candidate_mask"].to(device)
+            masked = logits.masked_fill(~cm, neg_inf)
+            pred = masked.argmax(dim=-1)
+            probs = torch.softmax(masked, dim=-1)
+            y = batch["labels"].to(device)
+            valid = cm.gather(1, y.unsqueeze(1)).squeeze(1).bool()
+            n_ok += int((pred == y)[valid].sum().item())
+            n_tot += int(valid.sum().item())
+            if not collect_errors or errors is None:
+                continue
+            gkeys = batch["group_keys"]
+            dbg_rows = batch["row_debug"]
+            for row in range(pred.shape[0]):
+                if not bool(valid[row].item()):
+                    continue
+                yi = int(y[row].item())
+                pi = int(pred[row].item())
+                if yi == pi:
+                    continue
+                n_errors_total += 1
+                if len(errors) >= max_errors:
+                    continue
+                gk = gkeys[row]
+                cands_w = ordered[gk]
+                cands_ipa = ordered_ipa[gk]
+                k_real = len(cands_w)
+                log_row = masked[row].detach().cpu().tolist()
+                prob_row = probs[row].detach().cpu().tolist()
+                rec: dict[str, Any] = {
+                    **dbg_rows[row],
+                    "gold_label_index": yi,
+                    "pred_label_index": pi,
+                    "gold_homograph_wordid": cands_w[yi] if yi < k_real else None,
+                    "pred_homograph_wordid": cands_w[pi] if pi < k_real else None,
+                    "gold_ipa": cands_ipa[yi] if yi < k_real else None,
+                    "pred_ipa": cands_ipa[pi] if pi < k_real else None,
+                    "alternatives": [
+                        {
+                            "index": i,
+                            "homograph_wordid": cands_w[i],
+                            "ipa": cands_ipa[i],
+                            "logit": log_row[i] if i < len(log_row) else None,
+                            "prob": prob_row[i] if i < len(prob_row) else None,
+                        }
+                        for i in range(k_real)
+                    ],
+                    "logits_all_slots": log_row,
+                    "softmax_probs_all_slots": prob_row,
+                }
+                errors.append(rec)
+    acc = n_ok / max(n_tot, 1)
+    if collect_errors and errors is not None:
+        return acc, n_ok, n_tot, errors, n_errors_total
+    return acc, n_ok, n_tot, None, 0
+
+
 def _evaluate(
     model: TinyHeteronymTransformer,
     records,
@@ -295,41 +444,73 @@ def _evaluate(
     batch_size: int,
     device: torch.device,
 ) -> float:
-    model.eval()
-    n_ok = 0
-    n_tot = 0
-    with torch.no_grad():
-        for batch in iter_encoded_batches(
-            records,
-            char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
-            ordered_candidates=ordered,
-            ordered_ipa=ordered_ipa,
-            label_maps=label_maps,
-            group_key=group_key,
-            max_seq_len=max_seq_len,
-            max_candidates=max_candidates,
-            max_ipa_len=max_ipa_len,
-            batch_size=batch_size,
-            shuffle=False,
-            seed=0,
-        ):
-            logits = model(
-                batch["input_ids"].to(device),
-                batch["attention_mask"].to(device),
-                batch["span_mask"].to(device),
-                batch["ipa_input_ids"].to(device),
-                batch["ipa_attention_mask"].to(device),
-            )
-            neg_inf = torch.finfo(logits.dtype).min / 4
-            masked = logits.masked_fill(~batch["candidate_mask"].to(device), neg_inf)
-            pred = masked.argmax(dim=-1)
-            y = batch["labels"].to(device)
-            cm = batch["candidate_mask"].to(device)
-            valid = cm.gather(1, y.unsqueeze(1)).squeeze(1).bool()
-            n_ok += int((pred == y)[valid].sum().item())
-            n_tot += int(valid.sum().item())
-    return n_ok / max(n_tot, 1)
+    acc, _, _, _, _ = _run_validation(
+        model,
+        records,
+        char_vocab=char_vocab,
+        ipa_char_vocab=ipa_char_vocab,
+        ordered=ordered,
+        ordered_ipa=ordered_ipa,
+        label_maps=label_maps,
+        group_key=group_key,
+        max_seq_len=max_seq_len,
+        max_candidates=max_candidates,
+        max_ipa_len=max_ipa_len,
+        batch_size=batch_size,
+        device=device,
+        collect_errors=False,
+        max_errors=0,
+    )
+    return acc
+
+
+def _write_valid_debug_json(
+    path: Path,
+    *,
+    epoch: int,
+    accuracy: float,
+    n_ok: int,
+    n_evaluated: int,
+    errors: list[dict[str, Any]],
+    n_errors_total: int,
+    max_errors: int,
+    args: argparse.Namespace,
+) -> None:
+    by_key: Counter[str] = Counter()
+    gold_vs_pred: Counter[tuple[str, str]] = Counter()
+    for e in errors:
+        gk = str(e.get("homograph_group_key", ""))
+        by_key[gk] += 1
+        gw = str(e.get("gold_homograph_wordid", ""))
+        pw = str(e.get("pred_homograph_wordid", ""))
+        gold_vs_pred[(gw, pw)] += 1
+    top_keys = by_key.most_common(40)
+    top_confusions = gold_vs_pred.most_common(30)
+    payload = {
+        "schema": "heteronym_valid_debug_v1",
+        "epoch": epoch,
+        "valid_accuracy": accuracy,
+        "n_ok": n_ok,
+        "n_evaluated": n_evaluated,
+        "n_errors_total": n_errors_total,
+        "errors_in_file": len(errors),
+        "errors_truncated": n_errors_total > len(errors),
+        "max_errors_cap": max_errors,
+        "summary_errors_by_homograph_key_top40": [{"homograph_group_key": k, "count": c} for k, c in top_keys],
+        "summary_gold_to_pred_wordid_top30": [
+            {"gold_homograph_wordid": a, "pred_homograph_wordid": b, "count": c} for (a, b), c in top_confusions
+        ],
+        "summary_note": (
+            "summary_errors_by_homograph_key_* and summary_gold_to_pred_* counts are computed "
+            "only from error rows listed in `errors` (after --valid-debug-max-errors cap), "
+            "not from the full validation set unless every error fits in the file."
+        ),
+        "train_config_snapshot": {k: (str(v) if isinstance(v, Path) else v) for k, v in vars(args).items()},
+        "errors": errors,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -368,6 +549,25 @@ def main(argv: list[str] | None = None) -> None:
     else:
         train_recs = corpus
         valid_recs = load_homograph_json(args.valid_json)
+
+    if args.max_alternative_spread > 0:
+        n_tr_before = len(train_recs)
+        train_recs, n_disc = cap_alternative_class_spread(
+            train_recs,
+            group_key=args.group_key,
+            max_spread=args.max_alternative_spread,
+            seed=args.seed,
+        )
+        logger.info(
+            "train cap: per-homograph class spread <= %d → %d rows (discarded %d from train)",
+            args.max_alternative_spread,
+            len(train_recs),
+            n_disc,
+        )
+        if not train_recs:
+            raise SystemExit(
+                "Training is empty after --max-alternative-spread capping (unexpected)."
+            )
 
     if args.resume:
         char_vocab, ipa_char_vocab, ordered, ordered_ipa, label_maps, mc, gk = load_training_artifacts(out)
@@ -564,21 +764,58 @@ def _train_loop(
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
             losses.append(float(loss.item()))
-        acc = _evaluate(
-            model,
-            valid_recs,
-            char_vocab=char_vocab,
-            ipa_char_vocab=ipa_char_vocab,
-            ordered=ordered,
-            ordered_ipa=ordered_ipa,
-            label_maps=label_maps,
-            group_key=args.group_key,
-            max_seq_len=args.max_seq_len,
-            max_candidates=args.max_candidates,
-            max_ipa_len=args.max_ipa_len,
-            batch_size=args.batch_size,
-            device=device,
-        )
+        if args.valid_debug_json is not None:
+            acc, n_ok_v, n_tot_v, err_rows, n_err_tot = _run_validation(
+                model,
+                valid_recs,
+                char_vocab=char_vocab,
+                ipa_char_vocab=ipa_char_vocab,
+                ordered=ordered,
+                ordered_ipa=ordered_ipa,
+                label_maps=label_maps,
+                group_key=args.group_key,
+                max_seq_len=args.max_seq_len,
+                max_candidates=args.max_candidates,
+                max_ipa_len=args.max_ipa_len,
+                batch_size=args.batch_size,
+                device=device,
+                collect_errors=True,
+                max_errors=max(0, int(args.valid_debug_max_errors)),
+            )
+            _write_valid_debug_json(
+                args.valid_debug_json,
+                epoch=epoch + 1,
+                accuracy=acc,
+                n_ok=n_ok_v,
+                n_evaluated=n_tot_v,
+                errors=err_rows or [],
+                n_errors_total=n_err_tot,
+                max_errors=max(0, int(args.valid_debug_max_errors)),
+                args=args,
+            )
+            logger.info(
+                "epoch %d | valid debug → %s (%d error rows written, %d wrong total)",
+                epoch + 1,
+                args.valid_debug_json,
+                len(err_rows or []),
+                n_err_tot,
+            )
+        else:
+            acc = _evaluate(
+                model,
+                valid_recs,
+                char_vocab=char_vocab,
+                ipa_char_vocab=ipa_char_vocab,
+                ordered=ordered,
+                ordered_ipa=ordered_ipa,
+                label_maps=label_maps,
+                group_key=args.group_key,
+                max_seq_len=args.max_seq_len,
+                max_candidates=args.max_candidates,
+                max_ipa_len=args.max_ipa_len,
+                batch_size=args.batch_size,
+                device=device,
+            )
         mean_loss = sum(losses) / max(len(losses), 1)
         logger.info(
             "epoch %d | train loss %.4f | valid acc %.4f",

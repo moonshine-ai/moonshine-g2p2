@@ -293,7 +293,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--max-sentences",
         type=int,
-        default=1_000_000,
+        default=10_000_000,
         help="cap emitted sentences per export job (same default as build_heteronym_espeak_dataset)",
     )
     p.add_argument(
