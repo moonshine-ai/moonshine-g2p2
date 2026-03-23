@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
 Train the small heteronym encoder–decoder on LibriG2P homograph JSON (phoneme
-targets, OOV-style decoder). Validation uses one teacher-forced forward per batch,
-argmax phoneme tokens, and Levenshtein matching among candidates. Inference scores
-each CMUdict alternative with teacher-forced NLL and picks the lowest loss.
+targets, OOV-style decoder). Validation uses greedy phoneme decoding plus Levenshtein
+matching among candidates (same post-processing as inference).
 
 Example::
 
@@ -33,9 +32,18 @@ inverse-frequency balancing over
 ``--no-train-augment`` / ``--no-balance-train``; disable the cap with
 ``--max-alternative-spread 0``.
 
-Use ``--valid-debug-json PATH`` to write misclassified validation rows each epoch
-(context window, gold vs pred, teacher-forced argmax phoneme tokens, per-candidate Levenshtein distances);
-optional ``--valid-debug-max-errors``.
+Use ``--valid-debug-json PATH`` to write misclassified validation rows after the
+final epoch's validation (context, labels, greedy decode, Levenshtein); optional
+``--valid-debug-max-errors``.
+
+By default, training and validation rows are limited to the
+``--top-homographs-by-frequency`` homograph surface keys (default 100) with the
+highest corpus frequencies from ``--corpus-frequency-tsv`` (default
+``data/en_us/dict_frequency.tsv``). Homographs in the JSON are ranked by that
+file; set ``--top-homographs-by-frequency 0`` to keep all homographs.
+
+Validation (accuracy, ``model.pt`` when it improves, and valid-debug output) runs only
+on the **last** epoch of each run (including after ``--resume``).
 """
 
 from __future__ import annotations
@@ -54,7 +62,7 @@ from torch.optim import AdamW
 from tqdm.auto import tqdm
 
 from g2p_common import HETERONYM_CONTEXT_MAX_CHARS
-from heteronym.teacher_force import teacher_forced_argmax_phoneme_tokens
+from heteronym.infer import greedy_decode_phoneme_strings
 from heteronym.ipa_postprocess import (
     ipa_string_to_phoneme_tokens,
     levenshtein_distance,
@@ -67,11 +75,15 @@ from heteronym.librig2p import (
     build_phoneme_vocab_from_ordered_ipa,
     cap_alternative_class_spread,
     download_librig2p_homograph_split,
+    filter_homograph_records_by_group_keys,
+    homograph_group_keys_in_records,
     iter_encoded_batches,
+    load_homograph_corpus_frequency_tsv,
     load_homograph_json,
     load_training_artifacts,
     max_encoded_phoneme_len,
     save_training_artifacts,
+    top_homograph_group_keys_by_corpus_frequency,
 )
 from heteronym.model import TinyHeteronymTransformer
 from oov.model import decoder_ce_loss
@@ -103,6 +115,8 @@ _CKPT_ARG_KEYS = (
     "valid_fraction",
     "max_alternative_spread",
     "levenshtein_extra_phonemes",
+    "top_homographs_by_frequency",
+    "corpus_frequency_tsv",
 )
 
 
@@ -134,6 +148,10 @@ def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace
         if k == "levenshtein_extra_phonemes" and s is None:
             continue
         if k == "n_decoder_layers" and s is None:
+            continue
+        if k == "top_homographs_by_frequency" and s is None:
+            continue
+        if k == "corpus_frequency_tsv" and s is None:
             continue
         mismatches.append(k)
     if mismatches:
@@ -294,8 +312,8 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         type=Path,
         default=None,
         metavar="PATH",
-        help="after each epoch's validation, write misclassified examples (context, labels, "
-        "logits, softmax) to this JSON file for error analysis",
+        help="after validation on the final epoch, write misclassified examples (context, labels, "
+        "greedy decode, Levenshtein) to this JSON file for error analysis",
     )
     p.add_argument(
         "--valid-debug-max-errors",
@@ -312,6 +330,21 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="per homograph surface key, after splitting train/valid: each homograph_wordid "
         "keeps at most (min wordid count + D) training rows; extra rows from larger classes "
         "are discarded (random, seeded). 0 disables.",
+    )
+    p.add_argument(
+        "--top-homographs-by-frequency",
+        type=int,
+        default=100,
+        metavar="N",
+        help="keep only the N homograph surface keys with highest corpus frequency "
+        "(from --corpus-frequency-tsv) among keys present in train+valid data; 0 = no limit",
+    )
+    p.add_argument(
+        "--corpus-frequency-tsv",
+        type=Path,
+        default=Path("data/en_us/dict_frequency.tsv"),
+        help="TSV word<TAB>ipa<TAB>frequency (e.g. from scripts/build_dict_corpus_frequency.py); "
+        "used when --top-homographs-by-frequency > 0",
     )
     return p.parse_args(argv)
 
@@ -378,9 +411,8 @@ def _run_validation(
     """
     Returns (accuracy, n_ok, n_tot, errors_or_none, n_errors_total).
 
-    Predictions: one teacher-forced forward per batch, argmax phoneme tokens per row,
-    then closest training-slot IPA by Levenshtein (candidate length +
-    *levenshtein_extra_phonemes* on the prediction prefix).
+    Predictions: greedy phoneme decode per row, then closest training-slot IPA by
+    Levenshtein (candidate length + *levenshtein_extra_phonemes* on the prediction prefix).
     """
     model.eval()
     n_ok = 0
@@ -419,24 +451,19 @@ def _run_validation(
             gkeys = batch["group_keys"]
             dbg_rows = batch["row_debug"] if collect_errors else None
 
-            logits = model(
-                inp,
-                am,
-                sm,
-                batch["decoder_input_ids"].to(device),
-                batch["decoder_attention_mask"].to(device),
-            )
-            dec_labels = batch["decoder_labels"].to(device)
-
             for row in range(inp.shape[0]):
                 if not bool(valid[row].item()):
                     continue
                 yi = int(y[row].item())
                 n_valid = int(cm[row].sum().item())
-                pred_tokens = teacher_forced_argmax_phoneme_tokens(
-                    logits[row],
-                    dec_labels[row],
-                    phoneme_vocab,
+                pred_tokens = greedy_decode_phoneme_strings(
+                    model,
+                    input_ids=inp[row : row + 1],
+                    attention_mask=am[row : row + 1],
+                    span_mask=sm[row : row + 1],
+                    phoneme_vocab=phoneme_vocab,
+                    max_phoneme_len=max_phoneme_len,
+                    device=device,
                 )
                 gk = gkeys[row]
                 ipa_slots = ordered_ipa[gk]
@@ -465,7 +492,7 @@ def _run_validation(
                         **dbg_rows[row],
                         "gold_label_index": yi,
                         "pred_label_index": pi,
-                        "teacher_forced_argmax_phoneme_tokens": pred_tokens,
+                        "greedy_decoded_phoneme_tokens": pred_tokens,
                         "levenshtein_extra_phonemes": levenshtein_extra_phonemes,
                         "levenshtein_distances_to_candidates": dists,
                         "gold_homograph_wordid": cands_w[yi] if yi < k_real else None,
@@ -477,7 +504,7 @@ def _run_validation(
                                 "index": i,
                                 "homograph_wordid": cands_w[i],
                                 "ipa": cands_ipa[i],
-                                "levenshtein_to_argmax_prefix": dists[i] if i < len(dists) else None,
+                                "levenshtein_to_greedy_prefix": dists[i] if i < len(dists) else None,
                             }
                             for i in range(k_real)
                         ],
@@ -554,7 +581,7 @@ def _write_valid_debug_json(
     top_keys = by_key.most_common(40)
     top_confusions = gold_vs_pred.most_common(30)
     payload = {
-        "schema": "heteronym_valid_debug_v3_teacher_argmax",
+        "schema": "heteronym_valid_debug_v4_greedy_decode",
         "epoch": epoch,
         "valid_accuracy": accuracy,
         "n_ok": n_ok,
@@ -618,6 +645,51 @@ def main(argv: list[str] | None = None) -> None:
     else:
         train_recs = corpus
         valid_recs = load_homograph_json(args.valid_json)
+
+    if args.top_homographs_by_frequency > 0:
+        freq_tsv = args.corpus_frequency_tsv.resolve()
+        if not freq_tsv.is_file():
+            raise SystemExit(
+                f"--corpus-frequency-tsv not found: {freq_tsv} "
+                "(build it with scripts/build_dict_corpus_frequency.py, or set "
+                "--top-homographs-by-frequency 0)"
+            )
+        freq_map = load_homograph_corpus_frequency_tsv(freq_tsv)
+        key_union = homograph_group_keys_in_records(
+            train_recs, args.group_key
+        ) | homograph_group_keys_in_records(valid_recs, args.group_key)
+        allowed = top_homograph_group_keys_by_corpus_frequency(
+            key_union,
+            freq_map,
+            args.top_homographs_by_frequency,
+        )
+        n_tr0, n_va0 = len(train_recs), len(valid_recs)
+        train_recs = filter_homograph_records_by_group_keys(
+            train_recs, group_key=args.group_key, allowed_group_keys=allowed
+        )
+        valid_recs = filter_homograph_records_by_group_keys(
+            valid_recs, group_key=args.group_key, allowed_group_keys=allowed
+        )
+        logger.info(
+            "corpus-frequency filter: kept %d / %d homograph keys (top %d by %s); "
+            "train rows %d -> %d, valid rows %d -> %d",
+            len(allowed),
+            len(key_union),
+            args.top_homographs_by_frequency,
+            freq_tsv,
+            n_tr0,
+            len(train_recs),
+            n_va0,
+            len(valid_recs),
+        )
+        if not train_recs:
+            raise SystemExit(
+                "Training is empty after --top-homographs-by-frequency filtering."
+            )
+        if not valid_recs:
+            raise SystemExit(
+                "Validation is empty after --top-homographs-by-frequency filtering."
+            )
 
     if args.max_alternative_spread > 0:
         n_tr_before = len(train_recs)
@@ -847,71 +919,77 @@ def _train_loop(
             losses.append(lv)
             pbar.set_postfix(loss=f"{lv:.4f}", avg=f"{sum(losses) / len(losses):.4f}")
         lev_n = int(args.levenshtein_extra_phonemes)
-        valid_pbar = f"valid epoch {epoch + 1}/{args.epochs}"
-        if args.valid_debug_json is not None:
-            acc, n_ok_v, n_tot_v, err_rows, n_err_tot = _run_validation(
-                model,
-                valid_recs,
-                char_vocab=char_vocab,
-                phoneme_vocab=phoneme_vocab,
-                ordered=ordered,
-                ordered_ipa=ordered_ipa,
-                label_maps=label_maps,
-                group_key=args.group_key,
-                max_seq_len=args.max_seq_len,
-                max_candidates=args.max_candidates,
-                max_phoneme_len=args.max_phoneme_len,
-                batch_size=args.batch_size,
-                device=device,
-                collect_errors=True,
-                max_errors=max(0, int(args.valid_debug_max_errors)),
-                levenshtein_extra_phonemes=lev_n,
-                pbar_desc=valid_pbar,
-            )
-            _write_valid_debug_json(
-                args.valid_debug_json,
-                epoch=epoch + 1,
-                accuracy=acc,
-                n_ok=n_ok_v,
-                n_evaluated=n_tot_v,
-                errors=err_rows or [],
-                n_errors_total=n_err_tot,
-                max_errors=max(0, int(args.valid_debug_max_errors)),
-                args=args,
-            )
+        is_last_epoch = epoch + 1 == args.epochs
+        acc = best_acc
+        if is_last_epoch:
+            valid_pbar = f"valid epoch {epoch + 1}/{args.epochs}"
+            if args.valid_debug_json is not None:
+                acc, n_ok_v, n_tot_v, err_rows, n_err_tot = _run_validation(
+                    model,
+                    valid_recs,
+                    char_vocab=char_vocab,
+                    phoneme_vocab=phoneme_vocab,
+                    ordered=ordered,
+                    ordered_ipa=ordered_ipa,
+                    label_maps=label_maps,
+                    group_key=args.group_key,
+                    max_seq_len=args.max_seq_len,
+                    max_candidates=args.max_candidates,
+                    max_phoneme_len=args.max_phoneme_len,
+                    batch_size=args.batch_size,
+                    device=device,
+                    collect_errors=True,
+                    max_errors=max(0, int(args.valid_debug_max_errors)),
+                    levenshtein_extra_phonemes=lev_n,
+                    pbar_desc=valid_pbar,
+                )
+                _write_valid_debug_json(
+                    args.valid_debug_json,
+                    epoch=epoch + 1,
+                    accuracy=acc,
+                    n_ok=n_ok_v,
+                    n_evaluated=n_tot_v,
+                    errors=err_rows or [],
+                    n_errors_total=n_err_tot,
+                    max_errors=max(0, int(args.valid_debug_max_errors)),
+                    args=args,
+                )
+                logger.info(
+                    "epoch %d | valid debug → %s (%d error rows written, %d wrong total)",
+                    epoch + 1,
+                    args.valid_debug_json,
+                    len(err_rows or []),
+                    n_err_tot,
+                )
+            else:
+                acc = _evaluate(
+                    model,
+                    valid_recs,
+                    char_vocab=char_vocab,
+                    phoneme_vocab=phoneme_vocab,
+                    ordered=ordered,
+                    ordered_ipa=ordered_ipa,
+                    label_maps=label_maps,
+                    group_key=args.group_key,
+                    max_seq_len=args.max_seq_len,
+                    max_candidates=args.max_candidates,
+                    max_phoneme_len=args.max_phoneme_len,
+                    batch_size=args.batch_size,
+                    device=device,
+                    levenshtein_extra_phonemes=lev_n,
+                    pbar_desc=valid_pbar,
+                )
+        mean_loss = sum(losses) / max(len(losses), 1)
+        if is_last_epoch:
             logger.info(
-                "epoch %d | valid debug → %s (%d error rows written, %d wrong total)",
+                "epoch %d | train loss %.4f | valid acc %.4f",
                 epoch + 1,
-                args.valid_debug_json,
-                len(err_rows or []),
-                n_err_tot,
+                mean_loss,
+                acc,
             )
         else:
-            acc = _evaluate(
-                model,
-                valid_recs,
-                char_vocab=char_vocab,
-                phoneme_vocab=phoneme_vocab,
-                ordered=ordered,
-                ordered_ipa=ordered_ipa,
-                label_maps=label_maps,
-                group_key=args.group_key,
-                max_seq_len=args.max_seq_len,
-                max_candidates=args.max_candidates,
-                max_phoneme_len=args.max_phoneme_len,
-                batch_size=args.batch_size,
-                device=device,
-                levenshtein_extra_phonemes=lev_n,
-                pbar_desc=valid_pbar,
-            )
-        mean_loss = sum(losses) / max(len(losses), 1)
-        logger.info(
-            "epoch %d | train loss %.4f | valid acc %.4f",
-            epoch + 1,
-            mean_loss,
-            acc,
-        )
-        if acc > best_acc:
+            logger.info("epoch %d | train loss %.4f", epoch + 1, mean_loss)
+        if is_last_epoch and acc > best_acc:
             best_acc = acc
             torch.save(model.state_dict(), out / "model.pt")
         save_training_artifacts(
@@ -938,14 +1016,11 @@ def _train_loop(
         if log_wandb:
             import wandb
 
-            wandb.log(
-                {
-                    "train/loss": mean_loss,
-                    "valid/accuracy": acc,
-                    "valid/best_accuracy": best_acc,
-                },
-                step=epoch + 1,
-            )
+            payload: dict[str, float] = {"train/loss": mean_loss}
+            if is_last_epoch:
+                payload["valid/accuracy"] = acc
+                payload["valid/best_accuracy"] = best_acc
+            wandb.log(payload, step=epoch + 1)
 
     return best_acc
 

@@ -30,6 +30,8 @@ from g2p_common import (
     heteronym_centered_context_window,
 )
 
+from cmudict_ipa import normalize_word_for_lookup
+
 from heteronym.ipa_postprocess import ipa_string_to_phoneme_tokens
 from oov.data import (
     SPECIAL_PHON_BOS,
@@ -85,6 +87,82 @@ def load_homograph_json(path: Path | str) -> list[HomographRecord]:
             )
         )
     return out
+
+
+def load_homograph_corpus_frequency_tsv(path: Path | str) -> dict[str, float]:
+    """
+    Load a TSV with at least three columns: ``word``, IPA, corpus frequency (float).
+
+    Typical source: ``data/en_us/dict_frequency.tsv`` from
+    ``scripts/build_dict_corpus_frequency.py``. Rows are merged by
+    :func:`normalize_word_for_lookup` on *word*; if the same key appears more than
+    once, the maximum frequency is kept.
+    """
+    path = Path(path)
+    out: dict[str, float] = {}
+    with path.open(encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 3:
+                continue
+            word = parts[0].strip()
+            if not word:
+                continue
+            try:
+                freq = float(parts[2].strip())
+            except ValueError:
+                continue
+            nk = normalize_word_for_lookup(word)
+            if not nk:
+                continue
+            prev = out.get(nk)
+            if prev is None or freq > prev:
+                out[nk] = freq
+    return out
+
+
+def homograph_group_keys_in_records(
+    records: Iterable[HomographRecord], group_key: str
+) -> set[str]:
+    """Distinct surface group keys (``lower`` or ``exact``) present in *records*."""
+    return {_group_key_for_record(r, group_key) for r in records}
+
+
+def top_homograph_group_keys_by_corpus_frequency(
+    keys: set[str] | frozenset[str],
+    freq_by_norm_word: dict[str, float],
+    top_n: int,
+) -> frozenset[str]:
+    """
+    Among *keys*, keep the *top_n* with highest values in *freq_by_norm_word*.
+
+    Lookup uses :func:`normalize_word_for_lookup` on each group key; missing keys
+    score 0.0. Ties break on the group key string. If *top_n* <= 0, returns all
+    *keys* (no filtering). If *keys* is empty, returns an empty frozenset.
+    """
+    if top_n <= 0:
+        return frozenset(keys)
+    if not keys:
+        return frozenset()
+    ranked = sorted(
+        keys,
+        key=lambda g: (-freq_by_norm_word.get(normalize_word_for_lookup(g), 0.0), g),
+    )
+    return frozenset(ranked[: min(top_n, len(ranked))])
+
+
+def filter_homograph_records_by_group_keys(
+    records: list[HomographRecord],
+    *,
+    group_key: str,
+    allowed_group_keys: set[str] | frozenset[str],
+) -> list[HomographRecord]:
+    """Drop rows whose homograph group key is not in *allowed_group_keys*."""
+    allow = allowed_group_keys
+    return [r for r in records if _group_key_for_record(r, group_key) in allow]
 
 
 def download_librig2p_homograph_split(

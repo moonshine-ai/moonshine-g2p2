@@ -45,8 +45,8 @@ class MoonshineG2P:
     via :meth:`CmudictIpa.translate_to_ipa` (normalization lives there), and join
     IPA strings with spaces. Unknown tokens are omitted. When CMUdict lists
     several IPA forms for a word, a trained heteronym model (optional checkpoint)
-    chooses among them by teacher-forced NLL on each alternative in a short
-    centered context window; without a checkpoint, the first sorted alternative is used.
+    chooses among them using greedy phoneme decoding and Levenshtein matching on a
+    short centered context window; without a checkpoint, the first sorted alternative is used.
     """
 
     def __init__(

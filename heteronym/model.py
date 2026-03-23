@@ -2,9 +2,8 @@
 Heteronym model: Transformer encoder over sentence context (span-marked) plus
 causal decoder predicting IPA phoneme tokens for the homograph (OOV-style).
 
-Training/validation use teacher-forced one-pass argmax phoneme sequences; validation
-maps those to a reading via Levenshtein among candidates. Inference scores each
-CMUdict alternative with teacher-forced NLL (:func:`~heteronym.teacher_force.pick_lowest_nll_cmudict_index`).
+Training minimizes teacher-forced decoder CE. Validation and inference use greedy
+phoneme decoding, then Levenshtein matching among pronunciation alternatives.
 """
 
 from __future__ import annotations

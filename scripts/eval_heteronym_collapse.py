@@ -4,7 +4,7 @@ Measure heteronym classifier collapse on a labeled JSON corpus.
 
 Loads a trained checkpoint (``model.pt`` or ``checkpoint.pt``) and sibling
 artifacts (``char_vocab.json``, ``phoneme_vocab.json``, ``homograph_index.json``),
-then runs teacher-forced one-pass argmax + Levenshtein candidate matching (same as training validation).
+then runs greedy phoneme decode + Levenshtein candidate matching (same as training validation).
 
 Reports:
 
@@ -45,9 +45,8 @@ if str(_REPO_ROOT) not in sys.path:
 import torch
 
 from g2p_common import HETERONYM_CONTEXT_MAX_CHARS
-from heteronym.infer import _resolve_snap_and_state_dict
+from heteronym.infer import _resolve_snap_and_state_dict, greedy_decode_phoneme_strings
 from heteronym.ipa_postprocess import pick_closest_alternative_index
-from heteronym.teacher_force import teacher_forced_argmax_phoneme_tokens
 from heteronym.librig2p import iter_encoded_batches, load_homograph_json, load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
 
@@ -292,25 +291,20 @@ def main(argv: list[str] | None = None) -> None:
             sm = batch["span_mask"].to(device)
             gkeys = batch["group_keys"]
 
-            logits = model(
-                inp,
-                am,
-                sm,
-                batch["decoder_input_ids"].to(device),
-                batch["decoder_attention_mask"].to(device),
-            )
-            dec_labels = batch["decoder_labels"].to(device)
-
             for row in range(inp.shape[0]):
                 if not bool(valid[row].item()):
                     continue
                 gk = gkeys[row]
                 yi = int(y[row].item())
                 n_valid = int(cm[row].sum().item())
-                pred_tokens = teacher_forced_argmax_phoneme_tokens(
-                    logits[row],
-                    dec_labels[row],
-                    phoneme_vocab,
+                pred_tokens = greedy_decode_phoneme_strings(
+                    model,
+                    input_ids=inp[row : row + 1],
+                    attention_mask=am[row : row + 1],
+                    span_mask=sm[row : row + 1],
+                    phoneme_vocab=phoneme_vocab,
+                    max_phoneme_len=max_phoneme_len,
+                    device=device,
                 )
                 ipa_slots = ordered_ipa[gk]
                 pi = pick_closest_alternative_index(

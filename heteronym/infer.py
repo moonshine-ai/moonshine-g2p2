@@ -15,9 +15,10 @@ if str(_REPO_ROOT) not in sys.path:
 import torch
 
 from g2p_common import SPECIAL_PAD, heteronym_centered_context_window
+from heteronym.ipa_postprocess import pick_closest_cmudict_ipa
 from heteronym.librig2p import load_training_artifacts
 from heteronym.model import TinyHeteronymTransformer
-from heteronym.teacher_force import pick_lowest_nll_cmudict_index
+from oov.data import SPECIAL_PHON_BOS, SPECIAL_PHON_EOS, SPECIAL_PHON_PAD
 
 
 def _normalize_ipa_compare(s: str) -> str:
@@ -104,6 +105,46 @@ def match_prediction_to_cmudict_ipa(predicted: str, alts: list[str]) -> str | No
     return None
 
 
+def greedy_decode_phoneme_strings(
+    model: TinyHeteronymTransformer,
+    *,
+    input_ids: torch.Tensor,
+    attention_mask: torch.Tensor,
+    span_mask: torch.Tensor,
+    phoneme_vocab,
+    max_phoneme_len: int,
+    device: torch.device,
+) -> list[str]:
+    """Grapheme context → greedy-decoded phoneme token strings (no BOS/EOS/PAD in output)."""
+    bos = phoneme_vocab.stoi[SPECIAL_PHON_BOS]
+    eos = phoneme_vocab.stoi[SPECIAL_PHON_EOS]
+    pad_p = phoneme_vocab.stoi[SPECIAL_PHON_PAD]
+    itos = phoneme_vocab.itos
+    cur: list[int] = [bos]
+
+    for _ in range(max_phoneme_len):
+        dec = torch.tensor([cur], dtype=torch.long, device=device)
+        dec_mask = torch.ones(1, len(cur), dtype=torch.bool, device=device)
+        logits = model(input_ids, attention_mask, span_mask, dec, dec_mask)
+        nxt = int(logits[0, -1].argmax(dim=-1).item())
+        if nxt == eos or nxt == pad_p:
+            break
+        cur.append(nxt)
+        if len(cur) >= max_phoneme_len:
+            break
+
+    out: list[str] = []
+    for tid in cur[1:]:
+        if tid == eos:
+            break
+        if 0 <= tid < len(itos):
+            tok = itos[tid]
+            if tok in (SPECIAL_PHON_PAD, SPECIAL_PHON_BOS, SPECIAL_PHON_EOS):
+                continue
+            out.append(tok)
+    return out
+
+
 class HeteronymDisambiguator:
     """
     Loads ``checkpoint.pt`` (full training checkpoint) and sibling
@@ -132,6 +173,7 @@ class HeteronymDisambiguator:
 
         self._max_seq_len = int(snap["max_seq_len"])
         self._max_phoneme_len = int(snap.get("max_phoneme_len", snap.get("max_ipa_len", 64)))
+        self._lev_extra = int(snap.get("levenshtein_extra_phonemes", 4))
         if int(snap["max_candidates"]) != self._max_candidates:
             raise ValueError(
                 "checkpoint max_candidates does not match homograph_index.json "
@@ -175,8 +217,8 @@ class HeteronymDisambiguator:
         cmudict_alternatives: list[str],
     ) -> str:
         """
-        Score each *cmudict_alternative* with mean teacher-forced NLL under the model,
-        then return the lowest-loss pronunciation (canonicalized to *alts*).
+        Greedy phoneme decode from sentence context, then Levenshtein-closest string
+        among *cmudict_alternatives* (prefix length candidate + *N* from training config).
         """
         if len(cmudict_alternatives) <= 1:
             return cmudict_alternatives[0] if cmudict_alternatives else ""
@@ -214,17 +256,20 @@ class HeteronymDisambiguator:
             input_ids = torch.tensor([ids], dtype=torch.long, device=self._device)
             attention_mask = torch.tensor([attn], dtype=torch.bool, device=self._device)
             span_mask = torch.tensor([span], dtype=torch.float32, device=self._device)
-            best_i = pick_lowest_nll_cmudict_index(
+            pred_tokens = greedy_decode_phoneme_strings(
                 self._model,
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 span_mask=span_mask,
-                cmudict_alternatives=cmudict_alternatives,
                 phoneme_vocab=self._phoneme_vocab,
                 max_phoneme_len=self._max_phoneme_len,
                 device=self._device,
             )
 
-        raw = cmudict_alternatives[best_i]
+        raw = pick_closest_cmudict_ipa(
+            pred_tokens,
+            cmudict_alternatives,
+            extra_phonemes=self._lev_extra,
+        )
         matched = match_prediction_to_cmudict_ipa(raw, cmudict_alternatives)
         return matched if matched is not None else cmudict_alternatives[0]
