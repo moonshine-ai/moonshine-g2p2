@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from oov.infer import OovG2pPredictor
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_DEFAULT_DICT_TSV = _REPO_ROOT / "data" / "en_us" / "dict_filtered_heteronyms.txt"
+_DEFAULT_DICT_TSV = _REPO_ROOT / "models" / "en_us" / "dict_filtered_heteronyms.tsv"
 _DEFAULT_OOV_CHECKPOINT = _REPO_ROOT / "models" / "en_us" / "oov" / "checkpoint.pt"
 _DEFAULT_HETERONYM_CHECKPOINT = _REPO_ROOT / "models" / "en_us" / "heteronym" / "checkpoint.pt"
 _ESPEAK_VOICE = "en-us"

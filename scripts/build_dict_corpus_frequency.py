@@ -12,7 +12,7 @@ Example::
 
     python scripts/build_dict_corpus_frequency.py \\
         --corpus data/en_us/wiki-text.txt \\
-        --dict data/en_us/dict_filtered_heteronyms.txt \\
+        --dict data/en_us/dict_filtered_heteronyms.tsv \\
         --out data/en_us/dict_frequency.tsv
 
 Uses ``tqdm`` progress bars for the corpus scan and the dict write loop when installed.
@@ -70,7 +70,7 @@ def main() -> None:
         "--dict",
         type=Path,
         dest="dict_path",
-        default=Path("data/en_us/dict_filtered_heteronyms.txt"),
+        default=Path("data/en_us/dict_filtered_heteronyms.tsv"),
         help="TSV with word in column 1 and IPA in column 2 (``#`` comment lines skipped).",
     )
     p.add_argument(

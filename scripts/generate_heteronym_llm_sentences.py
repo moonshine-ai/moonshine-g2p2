@@ -2,7 +2,7 @@
 """
 Generate Wikipedia-style example sentences for heteronym training via the Claude API.
 
-For each ambiguous homograph taken from ``dict_filtered_heteronyms.txt``-style TSV
+For each ambiguous homograph taken from ``dict_filtered_heteronyms.tsv``-style TSV
 (word, IPA; only orthographies with **multiple distinct IPA** rows) or optionally a
 LibriG2P JSON / plain word list,
 asks the model to emit one semi-formal encyclopedic sentence per item so downstream
@@ -198,7 +198,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--dict-path",
         type=Path,
-        default=Path("data/en_us/dict_filtered_heteronyms.txt"),
+        default=Path("data/en_us/dict_filtered_heteronyms.tsv"),
         help="word<TAB>ipa TSV sorted by word; only words with 2+ distinct IPA rows",
     )
     p.add_argument(

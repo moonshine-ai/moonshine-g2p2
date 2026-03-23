@@ -144,7 +144,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--dict-path",
         type=Path,
-        default=Path("data/en_us/dict_filtered_heteronyms.txt"),
+        default=Path("data/en_us/dict_filtered_heteronyms.tsv"),
         help="CMUdict TSV (word<TAB>ipa) used for ambiguous-word detection",
     )
     p.add_argument(

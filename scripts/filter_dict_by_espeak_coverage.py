@@ -38,7 +38,7 @@ Example::
     python scripts/filter_dict_by_espeak_coverage.py \\
         --dict-path data/en_us/dict.tsv \\
         --input-text data/en_us/input_text.txt \\
-        --out data/en_us/dict_filtered_heteronyms.txt
+        --out data/en_us/dict_filtered_heteronyms.tsv
 """
 
 from __future__ import annotations
@@ -291,7 +291,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument(
         "--out",
         type=Path,
-        default=Path("data/en_us/dict_filtered_heteronyms.txt"),
+        default=Path("data/en_us/dict_filtered_heteronyms.tsv"),
         help="filtered TSV output path",
     )
     p.add_argument("--voice", type=str, default="en-us", help="eSpeak voice, e.g. en-us")
