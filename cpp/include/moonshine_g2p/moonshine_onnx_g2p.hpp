@@ -1,6 +1,7 @@
 #pragma once
 
 #include "moonshine_g2p/cmudict_tsv.hpp"
+#include "moonshine_g2p/g2p_word_log.hpp"
 
 #include <filesystem>
 #include <memory>
@@ -8,6 +9,7 @@
 #include <onnxruntime_cxx_api.h>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace moonshine_g2p {
 
@@ -17,13 +19,21 @@ class OnnxOovG2p;
 // C++ counterpart to ``moonshine_onnx_g2p.py`` (no eSpeak).
 class MoonshineOnnxG2p {
  public:
+  /// *heteronym_onnx* / *oov_onnx*: pass a filesystem path when a model should be loaded (file must
+  /// exist). When *require_heteronym_model* is true, *heteronym_onnx* must be set to the path that
+  /// was resolved; if that file is missing, construction throws. Same for OOV.
   MoonshineOnnxG2p(CmudictTsv dict,
                    std::optional<std::filesystem::path> heteronym_onnx,
                    std::optional<std::filesystem::path> oov_onnx,
-                   bool use_cuda = false);
+                   bool use_cuda = false,
+                   bool require_heteronym_model = false,
+                   bool require_oov_model = false);
   ~MoonshineOnnxG2p();
 
-  [[nodiscard]] std::string text_to_ipa(std::string_view text);
+  /// Converts *text* to a space-separated IPA line. If *per_word_log* is non-null, appends one
+  /// G2pWordLog per surface token (including skips and unknowns).
+  [[nodiscard]] std::string text_to_ipa(std::string_view text,
+                                        std::vector<G2pWordLog>* per_word_log = nullptr);
 
  private:
   CmudictTsv dict_;

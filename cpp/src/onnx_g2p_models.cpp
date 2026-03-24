@@ -6,7 +6,12 @@
 #include "moonshine_g2p/utf8_utils.hpp"
 
 #include <array>
+#include <cstdlib>
 #include <filesystem>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -76,6 +81,24 @@ int argmax_vocab_row(const float* logits, int64_t vocab, int time_index) {
     }
   }
   return best;
+}
+
+bool heteronym_debug_env_enabled() {
+  const char* v = std::getenv("MOONSHINE_G2P_DEBUG_HET");
+  if (v == nullptr || v[0] == '\0') {
+    return false;
+  }
+  const std::string s(v);
+  return s != "0" && s != "false" && s != "FALSE";
+}
+
+void log_once_onnxruntime_version() {
+  static bool done = false;
+  if (done || !heteronym_debug_env_enabled()) {
+    return;
+  }
+  done = true;
+  std::cerr << "moonshine_g2p: heteronym debug: onnxruntime " << Ort::GetVersionString() << '\n';
 }
 
 }  // namespace
@@ -172,7 +195,16 @@ std::string OnnxHeteronymG2p::disambiguate_ipa(const std::string& full_text,
                                                int span_e,
                                                const std::string& lookup_key,
                                                const std::vector<std::string>& cmudict_alternatives) {
+  const bool dbg = heteronym_debug_env_enabled();
+  if (dbg) {
+    log_once_onnxruntime_version();
+  }
+
   if (cmudict_alternatives.size() <= 1) {
+    if (dbg) {
+      std::cerr << "moonshine_g2p: heteronym debug: skip (<=1 CMU alt) lookup_key=" << lookup_key
+                << " n_alts=" << cmudict_alternatives.size() << '\n';
+    }
     return cmudict_alternatives.empty() ? "" : cmudict_alternatives[0];
   }
 
@@ -186,6 +218,11 @@ std::string OnnxHeteronymG2p::disambiguate_ipa(const std::string& full_text,
     }
   }
   if (tab_.ordered_candidates.find(gkey) == tab_.ordered_candidates.end()) {
+    if (dbg) {
+      std::cerr << "moonshine_g2p: heteronym debug: fallback (gkey not in homograph_index) gkey="
+                << std::quoted(gkey) << " group_key=" << std::quoted(tab_.group_key)
+                << " first_alt=" << std::quoted(cmudict_alternatives[0]) << '\n';
+    }
     return cmudict_alternatives[0];
   }
 
@@ -193,6 +230,10 @@ std::string OnnxHeteronymG2p::disambiguate_ipa(const std::string& full_text,
   const auto win = heteronym_centered_context_window_cells(full_cells, span_s, span_e,
                                                              kHeteronymContextMaxChars);
   if (!win) {
+    if (dbg) {
+      std::cerr << "moonshine_g2p: heteronym debug: fallback (no context window) span=[" << span_s
+                << ',' << span_e << ") full_cp=" << full_cells.size() << '\n';
+    }
     return cmudict_alternatives[0];
   }
   const auto& [window_text, ws, we] = *win;
@@ -220,7 +261,34 @@ std::string OnnxHeteronymG2p::disambiguate_ipa(const std::string& full_text,
     span_sum += v;
   }
   if (span_sum < 1.0F) {
+    if (dbg) {
+      std::cerr << "moonshine_g2p: heteronym debug: fallback (span_mask sum < 1) span_sum="
+                << span_sum << '\n';
+    }
     return cmudict_alternatives[0];
+  }
+
+  if (dbg) {
+    std::cerr << "moonshine_g2p: heteronym debug: lookup_key=" << std::quoted(lookup_key)
+              << " gkey=" << std::quoted(gkey) << " span_cp=[" << span_s << ',' << span_e
+              << ") window_cp_len=" << utf8_split_codepoints(window_text).size() << " ws=" << ws
+              << " we=" << we << " window=" << std::quoted(window_text) << '\n';
+    std::cerr << "moonshine_g2p: heteronym debug: homograph ordered IPA (training order):";
+    const auto& oc = tab_.ordered_candidates.at(gkey);
+    for (size_t i = 0; i < oc.size(); ++i) {
+      std::cerr << " [" << i << "]=" << std::quoted(oc[i]);
+    }
+    std::cerr << '\n';
+    std::cerr << "moonshine_g2p: heteronym debug: CMU dict alts (lookup order, may match homograph):";
+    for (size_t i = 0; i < cmudict_alternatives.size(); ++i) {
+      std::cerr << " [" << i << "]=" << std::quoted(cmudict_alternatives[i]);
+    }
+    std::cerr << '\n';
+    std::cerr << "moonshine_g2p: heteronym debug: encoder_input_ids[0..min(31)]:";
+    for (int i = 0; i < tab_.max_seq_len && i < 32; ++i) {
+      std::cerr << ' ' << ids[static_cast<size_t>(i)];
+    }
+    std::cerr << '\n';
   }
 
   const std::array<int64_t, 2> enc_shape{1, tab_.max_seq_len};
@@ -287,6 +355,53 @@ std::string OnnxHeteronymG2p::disambiguate_ipa(const std::string& full_text,
   const std::string raw =
       pick_closest_cmudict_ipa(pred_tokens, cmudict_alternatives, tab_.levenshtein_extra);
   const auto matched = match_prediction_to_cmudict_ipa(raw, cmudict_alternatives);
+
+  if (dbg) {
+    std::ostringstream pred_joined;
+    for (size_t i = 0; i < pred_tokens.size(); ++i) {
+      pred_joined << pred_tokens[i];
+    }
+    std::cerr << "moonshine_g2p: heteronym debug: pred_phoneme_toks(n=" << pred_tokens.size()
+              << "):";
+    for (size_t i = 0; i < pred_tokens.size() && i < 48; ++i) {
+      std::cerr << ' ' << std::quoted(pred_tokens[i]);
+    }
+    if (pred_tokens.size() > 48) {
+      std::cerr << " ...";
+    }
+    std::cerr << "\nmoonshine_g2p: heteronym debug: pred_joined=" << std::quoted(pred_joined.str())
+              << '\n';
+    const int n = static_cast<int>(cmudict_alternatives.size());
+    int best_i = 0;
+    int best_d = std::numeric_limits<int>::max();
+    std::cerr << "moonshine_g2p: heteronym debug: levenshtein (extra_phonemes="
+              << tab_.levenshtein_extra << "):";
+    for (int i = 0; i < n; ++i) {
+      const auto cand = ipa_string_to_phoneme_tokens(cmudict_alternatives[static_cast<size_t>(i)]);
+      const int lim =
+          static_cast<int>(cand.size()) + std::max(0, static_cast<int>(tab_.levenshtein_extra));
+      const int take = std::min(lim, static_cast<int>(pred_tokens.size()));
+      std::vector<std::string> prefix(pred_tokens.begin(),
+                                      pred_tokens.begin() + static_cast<ptrdiff_t>(take));
+      const int d = levenshtein_distance(cand, prefix);
+      std::cerr << " d[" << i << "]=" << d;
+      if (d < best_d) {
+        best_d = d;
+        best_i = i;
+      }
+    }
+    std::cerr << " -> pick_i=" << best_i << " pick_closest_cmudict_ipa=" << std::quoted(raw)
+              << '\n';
+    std::cerr << "moonshine_g2p: heteronym debug: match_prediction_to_cmudict_ipa=";
+    if (matched.has_value()) {
+      std::cerr << std::quoted(*matched);
+    } else {
+      std::cerr << "nullopt";
+    }
+    std::cerr << " return="
+              << std::quoted(matched.has_value() ? *matched : cmudict_alternatives[0]) << '\n';
+  }
+
   return matched ? *matched : cmudict_alternatives[0];
 }
 
