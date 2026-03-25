@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -50,6 +51,7 @@ _CKPT_ARG_KEYS = (
     "device",
     "train_json",
     "valid_json",
+    "max_train_words",
 )
 
 
@@ -66,7 +68,10 @@ def _check_resume_args(saved: dict[str, object] | None, args: argparse.Namespace
     if not isinstance(saved, dict):
         raise SystemExit("Checkpoint is missing args_snapshot (cannot --resume).")
     cur = _args_snapshot(args)
-    mismatches = [k for k in _CKPT_ARG_KEYS if saved.get(k) != cur.get(k)]
+    mismatches = [
+        k for k in _CKPT_ARG_KEYS
+        if saved.get(k) != cur.get(k) and k != "max_train_words"
+    ]
     if mismatches:
         raise SystemExit(
             "Refusing to resume: the following flags differ from the checkpoint "
@@ -138,16 +143,25 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p.add_argument("--ffn-dim", type=int, default=512)
     p.add_argument("--dropout", type=float, default=0.5)
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--device", type=str, default="cpu")
+    p.add_argument("--device", type=str, default="cuda")
+    p.add_argument("--language", type=Path, default="en_us")
+    p.add_argument("--data-root", type=Path, default="data")
     p.add_argument(
         "--train-json",
         type=Path,
-        default=Path("data/en_us/oov-training/oov_train.json"),
+        default=Path("oov-training/oov_train.json"),
     )
     p.add_argument(
         "--valid-json",
         type=Path,
-        default=Path("data/en_us/oov-training/oov_valid.json"),
+        default=Path("oov-training/oov_valid.json"),
+    )
+    p.add_argument(
+        "--max-train-words",
+        type=int,
+        default=None,
+        metavar="N",
+        help="use at most N training records (default: no limit)",
     )
     p.add_argument("--resume", action="store_true")
     p.add_argument("--wandb", action="store_true")
@@ -204,11 +218,16 @@ def main(argv: list[str] | None = None) -> None:
     out.mkdir(parents=True, exist_ok=True)
     device = torch.device(args.device)
 
-    train_path = args.train_json.resolve()
-    valid_path = args.valid_json.resolve()
+    train_path = (args.data_root / args.language / args.train_json).resolve()
+    valid_path = (args.data_root / args.language / args.valid_json).resolve()
     if not train_path.is_file():
         raise SystemExit(f"Missing training JSON: {train_path}")
     train_recs = load_oov_json(train_path)
+    if args.max_train_words is not None:
+        if args.max_train_words < 1:
+            raise SystemExit("--max-train-words must be >= 1 when set")
+        train_recs = train_recs[: args.max_train_words]
+        logger.info("training on %d records (--max-train-words)", len(train_recs))
     valid_recs = load_oov_json(valid_path) if valid_path.is_file() else []
 
     if args.resume:
@@ -274,6 +293,7 @@ def main(argv: list[str] | None = None) -> None:
         for epoch in range(start_epoch, args.epochs):
             model.train()
             losses: list[float] = []
+            loss_sum = 0.0
             epoch_bar = tqdm(
                 total=len(train_recs),
                 desc=f"Epoch {epoch + 1}/{args.epochs}",
@@ -309,11 +329,17 @@ def main(argv: list[str] | None = None) -> None:
                     opt.step()
                     lv = float(loss.item())
                     losses.append(lv)
-                    epoch_bar.set_postfix(loss=f"{lv:.4f}", refresh=False)
+                    loss_sum += lv
+                    avg_loss = loss_sum / len(losses)
+                    epoch_bar.set_postfix(
+                        loss=f"{lv:.4f}",
+                        avg_loss=f"{avg_loss:.4f}",
+                        refresh=False,
+                    )
             finally:
                 epoch_bar.close()
 
-            mean_loss = sum(losses) / max(len(losses), 1)
+            mean_loss = loss_sum / max(len(losses), 1)
             acc = 0.0
             if valid_recs:
                 acc = _teacher_forcing_token_accuracy(

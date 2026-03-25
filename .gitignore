@@ -4,3 +4,4 @@ __pycache__
 /heteronym_runs
 /oov_runs
 *.tgz
+/oov_out

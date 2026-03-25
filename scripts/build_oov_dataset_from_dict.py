@@ -3,8 +3,9 @@
 Build OOV G2P training JSON from a pronouncing dictionary only (single words).
 
 One example per ``word<TAB>ipa`` row. ``char`` is the **word alone** (no sentence
-context); ``phonemes`` lists eSpeak IPA word chunks (typically one concatenated
-IPA string per surface word; see ``heteronym.espeak_heteronyms`` separator constants).
+context); ``phonemes`` is the IPA from the dictionary, tokenized the same way as
+elsewhere in this repo (``heteronym.ipa_postprocess.ipa_string_to_phoneme_tokens``):
+space-separated if the string contains spaces, otherwise one Unicode code point per token.
 
 Train/validation split is **by word key** (normalized lookup key) so the same
 grapheme key never appears in both splits.
@@ -12,11 +13,9 @@ grapheme key never appears in both splits.
 Writes ``oov_train.json`` and ``oov_valid.json`` under ``--out-dir``, plus
 ``build_metadata.json``.
 
-Requires ``libespeak-ng`` and ``pip install espeak-phonemizer``.
-
 Example::
 
-    python scripts/build_oov_espeak_dataset.py --out-dir data/en_us/oov-training
+    python scripts/build_oov_dataset_from_dict.py --out-dir data/en_us/oov-training
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ import json
 import logging
 import sys
 from collections import defaultdict
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +35,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from cmudict_ipa import CmudictIpa, normalize_word_for_lookup
-
-from heteronym.espeak_heteronyms import EspeakPhonemizer
-from oov.espeak_extract import extract_span_espeak_phonemes
+from heteronym.ipa_postprocess import ipa_string_to_phoneme_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -80,60 +76,46 @@ def _assign_dict_examples_by_word(
     return train_r, valid_r
 
 
-_worker_phonemizer: EspeakPhonemizer | None = None
-_worker_voice: str = "en-us"
-
-
-def _mp_init(voice: str) -> None:
-    global _worker_phonemizer, _worker_voice
-    _worker_phonemizer = EspeakPhonemizer(default_voice=voice)
-    _worker_voice = voice
-
-
-def _mp_dict_word(payload: tuple[str, str]) -> dict[str, Any] | None:
-    word, split = payload
-    assert _worker_phonemizer is not None
-    phones = extract_span_espeak_phonemes(
-        _worker_phonemizer,
-        word,
-        _worker_voice,
-        0,
-        len(word),
-    )
-    if not phones:
-        return None
-    return _json_row(word, phones, f"dict_{split}")
-
-
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("data"),
+        help="Root directory for data",
+    )
+    p.add_argument(
+        "--language",
+        type=Path,
+        default="en_us",
+        help="Language code",
+    )
+    p.add_argument(
         "--out-dir",
         type=Path,
-        default=Path("data/en_us/oov-training"),
+        default=Path("oov-training"),
+        help="Output directory for oov training data",
     )
     p.add_argument(
         "--dict-path",
         type=Path,
-        default=Path("data/en_us/dict.tsv"),
+        default=Path("dict.tsv"),
         help="TSV word<TAB>ipa (CMU-style)",
     )
     p.add_argument("--val-fraction", type=float, default=0.02, help="fraction of dict keys in valid")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--voice", type=str, default="en-us")
     p.add_argument("--max-dict-words", type=int, default=0, help="0 = all rows")
-    p.add_argument("--workers", type=int, default=1)
     return p.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     args = _parse_args(argv)
-    dict_path = args.dict_path.resolve()
+    dict_path = (args.data_root / args.language / args.dict_path).resolve()
     if not dict_path.is_file():
         raise SystemExit(f"Missing dictionary TSV: {dict_path}")
 
-    out_dir: Path = args.out_dir
+    out_dir: Path = (args.data_root / args.language / args.out_dir).resolve()
     out_dir.mkdir(parents=True, exist_ok=True)
 
     cmu = CmudictIpa(dict_path)
@@ -157,7 +139,7 @@ def main(argv: list[str] | None = None) -> None:
         "dict_valid_rows": len(valid_rows),
         "dict_train_emitted": 0,
         "dict_valid_emitted": 0,
-        "dict_espeak_failed": 0,
+        "dict_skipped_empty_phonemes": 0,
     }
 
     train_blob: dict[str, Any] = {}
@@ -174,63 +156,20 @@ def main(argv: list[str] | None = None) -> None:
         valid_blob[str(nid)] = obj
         nid += 1
 
-    workers = max(1, int(args.workers))
-
-    if workers == 1:
-        try:
-            phon = EspeakPhonemizer(default_voice=args.voice)
-        except OSError as e:
-            raise SystemExit(
-                "Could not load libespeak-ng (needed by espeak-phonemizer).\n"
-                f"Original error: {e}"
-            ) from e
-        for w, _ipa in tqdm(train_rows, desc="dict train"):
-            phones = extract_span_espeak_phonemes(phon, w, args.voice, 0, len(w))
-            if not phones:
-                stats["dict_espeak_failed"] += 1
-                continue
-            add_train(_json_row(w, phones, "dict_train"))
-            stats["dict_train_emitted"] += 1
-        for w, _ipa in tqdm(valid_rows, desc="dict valid"):
-            phones = extract_span_espeak_phonemes(phon, w, args.voice, 0, len(w))
-            if not phones:
-                stats["dict_espeak_failed"] += 1
-                continue
-            add_valid(_json_row(w, phones, "dict_valid"))
-            stats["dict_valid_emitted"] += 1
-    else:
-        try:
-            EspeakPhonemizer(default_voice=args.voice)
-        except OSError as e:
-            raise SystemExit(
-                "Could not load libespeak-ng (needed by espeak-phonemizer).\n"
-                f"Original error: {e}"
-            ) from e
-        dict_payloads = [(w, "train") for w, _ in train_rows] + [(w, "valid") for w, _ in valid_rows]
-        with ProcessPoolExecutor(
-            max_workers=workers,
-            initializer=_mp_init,
-            initargs=(args.voice,),
-        ) as ex:
-            futs = {ex.submit(_mp_dict_word, p): p for p in dict_payloads}
-            for fut in tqdm(as_completed(futs), total=len(futs), desc="dict (workers)"):
-                p = futs[fut]
-                word, split = p
-                try:
-                    row = fut.result()
-                except Exception as e:
-                    logger.warning("dict worker error for %r: %s", word, e)
-                    stats["dict_espeak_failed"] += 1
-                    continue
-                if row is None:
-                    stats["dict_espeak_failed"] += 1
-                    continue
-                if split == "train":
-                    add_train(row)
-                    stats["dict_train_emitted"] += 1
-                else:
-                    add_valid(row)
-                    stats["dict_valid_emitted"] += 1
+    for w, ipa in tqdm(train_rows, desc="dict train"):
+        phones = ipa_string_to_phoneme_tokens(ipa)
+        if not phones:
+            stats["dict_skipped_empty_phonemes"] += 1
+            continue
+        add_train(_json_row(w, phones, "dict_train"))
+        stats["dict_train_emitted"] += 1
+    for w, ipa in tqdm(valid_rows, desc="dict valid"):
+        phones = ipa_string_to_phoneme_tokens(ipa)
+        if not phones:
+            stats["dict_skipped_empty_phonemes"] += 1
+            continue
+        add_valid(_json_row(w, phones, "dict_valid"))
+        stats["dict_valid_emitted"] += 1
 
     train_path = out_dir / "oov_train.json"
     valid_path = out_dir / "oov_valid.json"
@@ -245,7 +184,6 @@ def main(argv: list[str] | None = None) -> None:
         "stats": stats,
         "val_fraction": args.val_fraction,
         "seed": args.seed,
-        "voice": args.voice,
     }
     with (out_dir / "build_metadata.json").open("w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
