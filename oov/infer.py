@@ -5,8 +5,10 @@ By default also prints eSpeak NG IPA on the following line (``--no-espeak`` to d
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
+from typing import Any
 
 # Allow `python oov/infer.py` (sys.path[0] is `oov/`, not the repo root).
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +25,71 @@ from oov.data import SPECIAL_PHON_BOS, SPECIAL_PHON_EOS, SPECIAL_PHON_PAD, Phone
 from oov.model import TinyOovG2pTransformer
 
 _DEFAULT_ESPEAK_VOICE = "en-us"
+
+
+def _snap_from_train_config(cfg: dict[str, Any]) -> dict[str, object]:
+    """Hyperparameters as saved by ``train_oov.py`` (``train_config.json``)."""
+    return {
+        "max_seq_len": int(cfg["max_seq_len"]),
+        "d_model": int(cfg["d_model"]),
+        "n_heads": int(cfg["n_heads"]),
+        "n_encoder_layers": int(cfg["n_encoder_layers"]),
+        "n_decoder_layers": int(cfg["n_decoder_layers"]),
+        "ffn_dim": int(cfg["ffn_dim"]),
+        "dropout": float(cfg["dropout"]),
+    }
+
+
+def _resolve_oov_snap_and_state(
+    path: Path, ckpt: Any
+) -> tuple[dict[str, object], dict[str, torch.Tensor]]:
+    """
+    Training writes ``checkpoint.pt`` (dict with ``args_snapshot`` + ``model``) and
+    ``model.pt`` (state_dict only). Accept either, using ``train_config.json`` or
+    sibling ``checkpoint.pt`` for hyperparameters when needed.
+    """
+    artifacts_dir = path.parent
+
+    def load_snap_from_sidecars() -> dict[str, object] | None:
+        tc = artifacts_dir / "train_config.json"
+        if tc.is_file():
+            with tc.open(encoding="utf-8") as f:
+                return _snap_from_train_config(json.load(f))
+        sib = artifacts_dir / "checkpoint.pt"
+        if sib.is_file() and sib.resolve() != path.resolve():
+            other = torch.load(sib, map_location="cpu", weights_only=False)
+            snap = other.get("args_snapshot") if isinstance(other, dict) else None
+            if isinstance(snap, dict):
+                return snap
+        return None
+
+    if not isinstance(ckpt, dict):
+        raise ValueError(f"OOV checkpoint must be a dict or state_dict: {path}")
+
+    snap = ckpt.get("args_snapshot")
+    if isinstance(snap, dict):
+        if "model" not in ckpt:
+            raise ValueError(f"checkpoint missing model weights: {path}")
+        return snap, ckpt["model"]
+
+    state: dict[str, torch.Tensor]
+    if "model" in ckpt and isinstance(ckpt["model"], dict):
+        state = ckpt["model"]
+    elif "char_emb.weight" in ckpt:
+        state = ckpt  # type: ignore[assignment]
+    else:
+        raise ValueError(
+            f"unrecognized OOV checkpoint layout (expected full checkpoint or "
+            f"model state_dict): {path}"
+        )
+
+    snap = load_snap_from_sidecars()
+    if snap is None:
+        raise ValueError(
+            f"checkpoint missing args_snapshot: {path}. Use checkpoint.pt, or keep "
+            f"train_config.json (or checkpoint.pt) in the same directory as model.pt."
+        )
+    return snap, state
 
 
 def _espeak_ng_ipa_for_surface(text: str, *, voice: str) -> str | None:
@@ -44,8 +111,10 @@ def _espeak_ng_ipa_for_surface(text: str, *, voice: str) -> str | None:
 
 class OovG2pPredictor:
     """
-    Loads ``checkpoint.pt`` and sibling ``char_vocab.json`` / ``phoneme_vocab.json``
-    / ``oov_index.json`` from the same directory (as written by ``train_oov.py``).
+    Loads ``checkpoint.pt`` or ``model.pt`` and sibling ``char_vocab.json`` /
+    ``phoneme_vocab.json`` / ``oov_index.json`` from the same directory (as written
+    by ``train_oov.py``). For ``model.pt``, hyperparameters come from
+    ``train_config.json`` or sibling ``checkpoint.pt``.
     """
 
     def __init__(self, checkpoint_path: Path | str, *, device: str | None = None) -> None:
@@ -59,9 +128,7 @@ class OovG2pPredictor:
         self._max_phoneme_len = max_phoneme_len
 
         ckpt = torch.load(self._path, map_location="cpu", weights_only=False)
-        snap = ckpt.get("args_snapshot")
-        if not isinstance(snap, dict):
-            raise ValueError(f"checkpoint missing args_snapshot: {self._path}")
+        snap, state = _resolve_oov_snap_and_state(self._path, ckpt)
 
         self._max_seq_len = int(snap["max_seq_len"])
         dev = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -79,7 +146,7 @@ class OovG2pPredictor:
             dim_feedforward=int(snap["ffn_dim"]),
             dropout=float(snap["dropout"]),
         )
-        self._model.load_state_dict(ckpt["model"])
+        self._model.load_state_dict(state)
         self._model.to(self._device)
         self._model.eval()
 
@@ -133,7 +200,11 @@ class OovG2pPredictor:
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("checkpoint", type=Path, help="Path to checkpoint.pt (vocab files in same directory)")
+    p.add_argument(
+        "checkpoint",
+        type=Path,
+        help="checkpoint.pt or model.pt (vocab JSON + train_config.json or checkpoint.pt in same dir)",
+    )
     p.add_argument("word", help="Single word to transcribe")
     p.add_argument("--device", default=None, help="Device (cuda/cpu); default: auto")
     p.add_argument(
