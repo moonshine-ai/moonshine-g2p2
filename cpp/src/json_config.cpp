@@ -63,19 +63,15 @@ OovOnnxTables load_oov_tables(const std::filesystem::path& model_onnx_path) {
   nlohmann::json train_cfg;
   nlohmann::json oov_meta;
 
-  if (std::filesystem::exists(merged)) {
-    const nlohmann::json cfg = read_json_file(merged);
-    validate_header(cfg, "oov", merged);
-    char_j = cfg["char_vocab"];
-    phon_j = cfg["phoneme_vocab"];
-    train_cfg = cfg["train_config"];
-    oov_meta = cfg["oov_index"];
-  } else {
-    char_j = read_json_file(parent / "char_vocab.json");
-    phon_j = read_json_file(parent / "phoneme_vocab.json");
-    train_cfg = read_json_file(parent / "train_config.json");
-    oov_meta = read_json_file(parent / "oov_index.json");
+  if (!std::filesystem::exists(merged)) {
+    throw std::runtime_error("onnx-config.json not found at " + merged.generic_string());
   }
+  const nlohmann::json cfg = read_json_file(merged);
+  validate_header(cfg, "oov", merged);
+  char_j = cfg["char_vocab"];
+  phon_j = cfg["phoneme_vocab"];
+  train_cfg = cfg["train_config"];
+  oov_meta = cfg["oov_index"];
 
   OovOnnxTables t;
   t.char_stoi = json_object_to_string_int_map(char_j);
@@ -101,19 +97,15 @@ HeteronymOnnxTables load_heteronym_tables(const std::filesystem::path& model_onn
   nlohmann::json train_cfg;
   nlohmann::json homograph;
 
-  if (std::filesystem::exists(merged)) {
-    const nlohmann::json cfg = read_json_file(merged);
-    validate_header(cfg, "heteronym", merged);
-    char_j = cfg["char_vocab"];
-    phon_j = cfg["phoneme_vocab"];
-    train_cfg = cfg["train_config"];
-    homograph = cfg["homograph_index"];
-  } else {
-    char_j = read_json_file(parent / "char_vocab.json");
-    phon_j = read_json_file(parent / "phoneme_vocab.json");
-    train_cfg = read_json_file(parent / "train_config.json");
-    homograph = read_json_file(parent / "homograph_index.json");
+  if (!std::filesystem::exists(merged)) {
+    throw std::runtime_error("onnx-config.json not found at " + merged.generic_string());
   }
+  const nlohmann::json cfg = read_json_file(merged);
+  validate_header(cfg, "heteronym", merged);
+  char_j = cfg["char_vocab"];
+  phon_j = cfg["phoneme_vocab"];
+  train_cfg = cfg["train_config"];
+  homograph = cfg["homograph_index"];
 
   HeteronymOnnxTables t;
   t.char_stoi = json_object_to_string_int_map(char_j);

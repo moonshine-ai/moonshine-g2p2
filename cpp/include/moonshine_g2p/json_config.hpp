@@ -35,7 +35,7 @@ struct HeteronymOnnxTables {
   int64_t phon_pad = 0;
 };
 
-// Loads from model.onnx directory: config_onnx.json or legacy split JSON files.
+// Loads onnx-config.json from model.onnx directory.
 OovOnnxTables load_oov_tables(const std::filesystem::path& model_onnx_path);
 
 HeteronymOnnxTables load_heteronym_tables(const std::filesystem::path& model_onnx_path);

@@ -24,8 +24,7 @@ TEST_CASE("onnx end-to-end when MOONSHINE_G2P_MODELS_ROOT is set") {
     return;
   }
 
-  CmudictTsv dict(dict_path);
-  MoonshineOnnxG2p g2p(dict, het, oov, false);
+  MoonshineOnnxG2p g2p(dict_path, het, oov, false);
   const std::string out = g2p.text_to_ipa("Hello world!");
   CHECK(out.size() > 0);
 }

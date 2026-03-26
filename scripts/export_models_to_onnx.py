@@ -33,7 +33,7 @@ At inference, **decoder_seq_len must equal** ``max_phoneme_len`` from training (
 shorter prefixes and mask padding); only the batch axis is dynamic on the decoder
 inputs. Encoder sequence length may still be dynamic up to ``max_seq_len``.
 
-After export, a single ``config_onnx.json`` is written next to ``model.onnx``,
+After export, a single ``onnx-config.json`` is written next to ``model.onnx``,
 embedding ``char_vocab.json``, ``phoneme_vocab.json``, ``train_config.json``, the
 index file (``homograph_index.json`` or ``oov_index.json``), and ONNX I/O metadata
 so runtimes (e.g. ``moonshine_onnx_g2p.py``) need only that file plus the ``.onnx``.
@@ -71,12 +71,18 @@ def _require_onnx() -> None:
         ) from e
 
 
-def _load_heteronym_bundle(artifacts_dir: Path) -> tuple[TinyHeteronymTransformer, dict[str, Any]]:
+def _load_heteronym_bundle(
+    artifacts_dir: Path,
+) -> tuple[TinyHeteronymTransformer, dict[str, Any]]:
     ckpt_path = artifacts_dir / "checkpoint.pt"
     if not ckpt_path.is_file():
         raise FileNotFoundError(f"missing heteronym checkpoint: {ckpt_path}")
-    char_vocab = CharVocab.from_stoi(json.loads((artifacts_dir / "char_vocab.json").read_text(encoding="utf-8")))
-    phon_vocab = PhonemeVocab.from_stoi(json.loads((artifacts_dir / "phoneme_vocab.json").read_text(encoding="utf-8")))
+    char_vocab = CharVocab.from_stoi(
+        json.loads((artifacts_dir / "char_vocab.json").read_text(encoding="utf-8"))
+    )
+    phon_vocab = PhonemeVocab.from_stoi(
+        json.loads((artifacts_dir / "phoneme_vocab.json").read_text(encoding="utf-8"))
+    )
     ckpt = torch.load(ckpt_path, map_location="cpu", weights_only=False)
     snap, state = _resolve_snap_and_state_dict(ckpt_path, ckpt)
     n_enc = int(snap["n_layers"])
@@ -100,7 +106,9 @@ def _load_heteronym_bundle(artifacts_dir: Path) -> tuple[TinyHeteronymTransforme
         "char_vocab_size": len(char_vocab),
         "phoneme_vocab_size": len(phon_vocab),
         "max_encoder_seq_len": int(snap["max_seq_len"]),
-        "max_decoder_seq_len": int(snap.get("max_phoneme_len", snap.get("max_ipa_len", 64))),
+        "max_decoder_seq_len": int(
+            snap.get("max_phoneme_len", snap.get("max_ipa_len", 64))
+        ),
         "d_model": int(snap["d_model"]),
         "n_encoder_layers": n_enc,
         "n_decoder_layers": n_dec,
@@ -108,7 +116,9 @@ def _load_heteronym_bundle(artifacts_dir: Path) -> tuple[TinyHeteronymTransforme
     return model, meta
 
 
-def _load_oov_bundle(artifacts_dir: Path) -> tuple[TinyOovG2pTransformer, dict[str, Any]]:
+def _load_oov_bundle(
+    artifacts_dir: Path,
+) -> tuple[TinyOovG2pTransformer, dict[str, Any]]:
     ckpt_path = artifacts_dir / "checkpoint.pt"
     if not ckpt_path.is_file():
         raise FileNotFoundError(f"missing OOV checkpoint: {ckpt_path}")
@@ -187,7 +197,9 @@ def _oov_example_inputs(meta: dict[str, Any]) -> tuple[torch.Tensor, ...]:
     return (enc_ids, enc_mask, dec_ids, dec_mask)
 
 
-def _export_heteronym(model: TinyHeteronymTransformer, onnx_path: Path, *, opset: int) -> None:
+def _export_heteronym(
+    model: TinyHeteronymTransformer, onnx_path: Path, *, opset: int
+) -> None:
     args = _heteronym_example_inputs(
         {
             "max_encoder_seq_len": model.max_seq_len,
@@ -333,8 +345,12 @@ def _build_config_onnx(
 ) -> dict[str, Any]:
     """Single JSON bundle for ONNX inference (vocabs, training/index JSON, I/O metadata)."""
     char_vocab = json.loads((directory / "char_vocab.json").read_text(encoding="utf-8"))
-    phoneme_vocab = json.loads((directory / "phoneme_vocab.json").read_text(encoding="utf-8"))
-    train_config = json.loads((directory / "train_config.json").read_text(encoding="utf-8"))
+    phoneme_vocab = json.loads(
+        (directory / "phoneme_vocab.json").read_text(encoding="utf-8")
+    )
+    train_config = json.loads(
+        (directory / "train_config.json").read_text(encoding="utf-8")
+    )
     onnx_export = _metadata_payload(
         onnx_path=onnx_path,
         model_kind=kind,
@@ -354,7 +370,9 @@ def _build_config_onnx(
             (directory / "homograph_index.json").read_text(encoding="utf-8")
         )
     elif kind == "oov":
-        out["oov_index"] = json.loads((directory / "oov_index.json").read_text(encoding="utf-8"))
+        out["oov_index"] = json.loads(
+            (directory / "oov_index.json").read_text(encoding="utf-8")
+        )
     else:  # pragma: no cover
         raise ValueError(f"unknown model kind: {kind}")
     return out
@@ -384,39 +402,67 @@ def _verify_onnxruntime(
     got = sess.run(None, feeds)[0]
     if not np.allclose(got, expected, atol=atol, rtol=0.0):
         diff = float(np.max(np.abs(got - expected)))
-        raise RuntimeError(f"ONNX Runtime output mismatch vs PyTorch (max abs diff {diff})")
+        raise RuntimeError(
+            f"ONNX Runtime output mismatch vs PyTorch (max abs diff {diff})"
+        )
     print(f"verified {onnx_path.name} against PyTorch (atol={atol})", file=sys.stderr)
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
+        "--language",
+        type=str,
+        default="en_us",
+        help="Language to export models for",
+    )
+    parser.add_argument(
+        "--data-root",
+        type=Path,
+        default=Path("data"),
+        help="Root directory for data",
+    )
+    parser.add_argument(
+        "--model-root",
+        type=Path,
+        default=Path("models"),
+        help="Root directory for models",
+    )
+    parser.add_argument(
         "--heteronym-dir",
         type=Path,
-        default=_REPO_ROOT / "models/en_us/heteronym",
+        default=Path("heteronym"),
         help="Directory with checkpoint.pt and vocab JSON files",
     )
     parser.add_argument(
         "--oov-dir",
         type=Path,
-        default=_REPO_ROOT / "models/en_us/oov",
+        default=Path("oov"),
         help="Directory with checkpoint.pt and vocab JSON files",
     )
     parser.add_argument(
-        "--output-name",
-        default="model.onnx",
-        help="ONNX filename written inside each model directory",
+        "--heteronym-output-name",
+        type=Path,
+        default=Path("model.onnx"),
+        help="ONNX filename written inside the heteronym model directory",
     )
     parser.add_argument(
-        "--config-onnx-name",
-        default="config_onnx.json",
+        "--oov-output-name",
+        type=Path,
+        default=Path("model.onnx"),
+        help="ONNX filename written inside the oov model directory",
+    )
+    parser.add_argument(
+        "--onnx-config-name",
+        type=Path,
+        default=Path("onnx-config.json"),
         help="Merged vocab + index + train_config + onnx_export metadata (next to model.onnx)",
     )
     parser.add_argument("--opset", type=int, default=17, help="ONNX opset version")
     parser.add_argument(
         "--only",
-        choices=("heteronym", "oov", "both"),
-        default="both",
+        choices=("config", "heteronym", "oov", "both"),
+        default="config",
         help="Which bundle to export",
     )
     parser.add_argument(
@@ -424,37 +470,75 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="If onnxruntime is installed, compare one forward pass to PyTorch",
     )
-    parser.add_argument("--verify-atol", type=float, default=1e-4, help="Tolerance for --verify")
+    parser.add_argument(
+        "--verify-atol", type=float, default=1e-4, help="Tolerance for --verify"
+    )
+    parser.add_argument(
+        "--heteronym-checkpoint",
+        type=Path,
+        default=None,
+        help="Heteronym checkpoint path",
+    )
+    parser.add_argument(
+        "--oov-checkpoint", type=Path, default=None, help="OOV checkpoint path"
+    )
     args_ns = parser.parse_args(argv)
 
     _require_onnx()
 
-    tasks: list[tuple[str, Path]] = []
-    if args_ns.only in ("heteronym", "both"):
-        tasks.append(("heteronym", args_ns.heteronym_dir.resolve()))
-    if args_ns.only in ("oov", "both"):
-        tasks.append(("oov", args_ns.oov_dir.resolve()))
+    g2p_config_path = args_ns.model_root / args_ns.language / "g2p-config.json"
+    if g2p_config_path.is_file() and args_ns.only == "config":
+        g2p_config = json.loads(g2p_config_path.read_text(encoding="utf-8"))
+    else:
+        print(f"no g2p-config.json found at {g2p_config_path}, using cli config")
+        g2p_config = {
+            "uses_heteronym_model": args_ns.only in ("heteronym", "both"),
+            "uses_oov_model": args_ns.only in ("oov", "both"),
+        }
+    if not g2p_config["uses_heteronym_model"] and not g2p_config["uses_oov_model"]:
+        print("no models to export, exiting")
+        return
 
-    for kind, directory in tasks:
+    tasks: list[tuple[str, Path]] = []
+    if g2p_config["uses_heteronym_model"]:
+        if not args_ns.heteronym_checkpoint:
+            print(
+                "no --heteronym-checkpoint provided, but heteronym exporting is requested"
+            )
+            return
+        tasks.append(("heteronym", args_ns.heteronym_checkpoint.resolve()))
+    if g2p_config["uses_oov_model"]:
+        if not args_ns.oov_checkpoint:
+            print("no --oov-checkpoint provided, but oov exporting is requested")
+            return
+        tasks.append(("oov", args_ns.oov_checkpoint.resolve()))
+
+    language_root = args_ns.model_root / args_ns.language
+    heteronym_dir = language_root / args_ns.heteronym_dir
+    oov_dir = language_root / args_ns.oov_dir
+    for kind, checkpoint_path in tasks:
+        checkpoint_dir = checkpoint_path.parent
         if kind == "heteronym":
-            model, meta = _load_heteronym_bundle(directory)
-            onnx_path = directory / args_ns.output_name
+            model, meta = _load_heteronym_bundle(checkpoint_dir)
+            onnx_path = heteronym_dir / args_ns.heteronym_output_name
             _export_heteronym(model, onnx_path, opset=args_ns.opset)
             ex_args = _heteronym_example_inputs(meta)
         else:
-            model, meta = _load_oov_bundle(directory)
-            onnx_path = directory / args_ns.output_name
+            model, meta = _load_oov_bundle(checkpoint_dir)
+            onnx_path = oov_dir / args_ns.oov_output_name
             _export_oov(model, onnx_path, opset=args_ns.opset)
             ex_args = _oov_example_inputs(meta)
 
-        config_path = directory / args_ns.config_onnx_name
-        merged = _build_config_onnx(kind, directory, meta, onnx_path, args_ns.opset)
-        config_path.write_text(
+        onnx_config_path = onnx_path.parent / args_ns.onnx_config_name
+        merged = _build_config_onnx(
+            kind, checkpoint_dir, meta, onnx_config_path, args_ns.opset
+        )
+        onnx_config_path.write_text(
             json.dumps(merged, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
         print(f"wrote {onnx_path}", file=sys.stderr)
-        print(f"wrote {config_path}", file=sys.stderr)
+        print(f"wrote {onnx_config_path}", file=sys.stderr)
 
         if args_ns.verify:
             if kind == "heteronym":
@@ -472,7 +556,9 @@ def main(argv: list[str] | None = None) -> None:
                     "decoder_input_ids",
                     "decoder_attention_mask",
                 ]
-            _verify_onnxruntime(onnx_path, model, ex_args, in_names, atol=args_ns.verify_atol)
+            _verify_onnxruntime(
+                onnx_path, model, ex_args, in_names, atol=args_ns.verify_atol
+            )
 
 
 if __name__ == "__main__":

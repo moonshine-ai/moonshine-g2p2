@@ -12,6 +12,6 @@ inline constexpr std::string_view kPhonEos = "<eos>";
 
 inline constexpr int kHeteronymContextMaxChars = 32;
 inline constexpr int kConfigOnnxSchemaVersion = 1;
-inline constexpr std::string_view kConfigOnnxFileName = "config_onnx.json";
+inline constexpr std::string_view kConfigOnnxFileName = "onnx-config.json";
 
 }  // namespace moonshine_g2p

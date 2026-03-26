@@ -20,14 +20,11 @@ class OnnxOovG2p;
 class MoonshineOnnxG2p {
  public:
   /// *heteronym_onnx* / *oov_onnx*: pass a filesystem path when a model should be loaded (file must
-  /// exist). When *require_heteronym_model* is true, *heteronym_onnx* must be set to the path that
-  /// was resolved; if that file is missing, construction throws. Same for OOV.
-  MoonshineOnnxG2p(CmudictTsv dict,
+  /// exist).
+  MoonshineOnnxG2p(std::optional<std::filesystem::path> dict_path,
                    std::optional<std::filesystem::path> heteronym_onnx,
                    std::optional<std::filesystem::path> oov_onnx,
-                   bool use_cuda = false,
-                   bool require_heteronym_model = false,
-                   bool require_oov_model = false);
+                   bool use_cuda = false);
   ~MoonshineOnnxG2p();
 
   /// Converts *text* to a space-separated IPA line. If *per_word_log* is non-null, appends one
@@ -36,7 +33,7 @@ class MoonshineOnnxG2p {
                                         std::vector<G2pWordLog>* per_word_log = nullptr);
 
  private:
-  CmudictTsv dict_;
+  std::unique_ptr<CmudictTsv> dict_;
   Ort::Env env_{ORT_LOGGING_LEVEL_WARNING, "moonshine_g2p"};
   std::unique_ptr<OnnxHeteronymG2p> het_;
   std::unique_ptr<OnnxOovG2p> oov_;

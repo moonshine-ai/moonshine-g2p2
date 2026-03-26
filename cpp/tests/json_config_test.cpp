@@ -8,7 +8,7 @@
 
 using namespace moonshine_g2p;
 
-TEST_CASE("load_oov_tables from config_onnx.json") {
+TEST_CASE("load_oov_tables from onnx-config.json") {
   const auto dir = std::filesystem::temp_directory_path() / "g2p_cfg_test";
   std::filesystem::create_directories(dir);
   const auto model = dir / "model.onnx";
@@ -17,7 +17,7 @@ TEST_CASE("load_oov_tables from config_onnx.json") {
     touch << "x";
   }
   {
-    std::ofstream cfg(dir / "config_onnx.json");
+    std::ofstream cfg(dir / "onnx-config.json");
     cfg << R"({
   "config_schema_version": 1,
   "model_kind": "oov",
