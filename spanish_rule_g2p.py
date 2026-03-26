@@ -2,9 +2,9 @@
 """
 Rule-based Spanish grapheme-to-phoneme (broad IPA) conversion.
 
-Designed around a small :class:`SpanishDialect` so variants (Peninsular distinción,
-non-yeísmo ll, Caribbean weakening of coda /s/, alternate realizations of /x/, etc.)
-can be added without rewriting the letter logic.
+Designed around a small :class:`SpanishDialect` with CLI presets for Castilian Spain,
+Mexico, neutral Latin American (``es-419``), major South American countries, the
+Caribbean (CU/DO/PR), and Central America (GT)—plus custom fields for new regions.
 
 References (high level):
 - Wikipedia \"Help:IPA/Spanish\" — consonant/vowel chart, seseo vs distinción, yeísmo, rhotics.
@@ -31,6 +31,7 @@ from __future__ import annotations
 import argparse
 import re
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
@@ -76,6 +77,8 @@ class SpanishDialect:
     *trill_ipa*, *tap_ipa*: ⟨rr⟩ vs intervocalic single ⟨r⟩.
     *nasal_assimilation*: if True, rewrite n→ŋ before velars, n→m before labials, n→ɱ before /f/.
     *narrow_intervocalic_obstruents*: if True, map intervocalic /b/ /d/ /ɡ/ to **[β]**, **[ð]**, **[ɣ]**.
+    *coda_s_mode*: ``\"keep\"`` (default), ``\"h\"`` (word-final /s/ → **[h]**), or ``\"drop\"`` (omit word-final /s/).
+        Internal syllable-coda /s/ is not rewritten yet (would need syllable-aware IPA).
     """
 
     id: str
@@ -90,43 +93,335 @@ class SpanishDialect:
     tap_ipa: str
     nasal_assimilation: bool = False
     narrow_intervocalic_obstruents: bool = True
+    coda_s_mode: str = "keep"
+
+
+def _spanish_dialect_common(
+    *,
+    id: str,
+    ce_ci_z_ipa: str,
+    yeismo: bool,
+    y_consonant_ipa: str,
+    ll_ipa: str,
+    voiceless_velar_fricative: str,
+    coda_s_mode: str,
+    narrow_intervocalic_obstruents: bool,
+) -> SpanishDialect:
+    return SpanishDialect(
+        id=id,
+        ce_ci_z_ipa=ce_ci_z_ipa,
+        yeismo=yeismo,
+        y_consonant_ipa=y_consonant_ipa,
+        ll_ipa=ll_ipa,
+        x_intervocalic_default="ks",
+        x_initial_before_vowel="s",
+        voiceless_velar_fricative=voiceless_velar_fricative,
+        trill_ipa="r",
+        tap_ipa="ɾ",
+        nasal_assimilation=False,
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+        coda_s_mode=coda_s_mode,
+    )
 
 
 def mexican_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
-    """Mexican Spanish: seseo, yeísmo, [x] for /x/ (not [h])."""
-    return SpanishDialect(
+    """Mexico: seseo, yeísmo /ʝ/, ⟨j⟩/soft ⟨g⟩ as /x/, keep word-final /s/."""
+    return _spanish_dialect_common(
         id="es-MX",
         ce_ci_z_ipa="s",
         yeismo=True,
         y_consonant_ipa="ʝ",
         ll_ipa="ʎ",
-        x_intervocalic_default="ks",
-        x_initial_before_vowel="s",
         voiceless_velar_fricative="x",
-        trill_ipa="r",
-        tap_ipa="ɾ",
-        nasal_assimilation=False,
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def latin_american_neutral_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Generic Latin American (seseo, yeísmo, /x/): useful when no country-specific preset fits."""
+    return _spanish_dialect_common(
+        id="es-419",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def castilian_spanish_dialect(
+    *, narrow_intervocalic_obstruents: bool = True, dialect_id: str = "es-ES"
+) -> SpanishDialect:
+    """
+    Castilian (Spain, mainstream urban): **distinción** (⟨z⟩ / ⟨ce⟩ / ⟨ci⟩ → /θ/), yeísmo, /x/ for ⟨j⟩/soft ⟨g⟩.
+    Does not model Andalusian ceceo/seseo or Northern uvular /χ/ (use a custom :class:`SpanishDialect`).
+    """
+    return _spanish_dialect_common(
+        id=dialect_id,
+        ce_ci_z_ipa="θ",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
         narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
     )
 
 
 def peninsular_distincion_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
-    """Example alternate: distinción (soft ⟨c⟩/⟨z⟩ as /θ/), yeísmo unchanged."""
-    d = mexican_spanish_dialect(narrow_intervocalic_obstruents=narrow_intervocalic_obstruents)
-    return SpanishDialect(
-        id="es-ES-distincion",
-        ce_ci_z_ipa="θ",
-        yeismo=d.yeismo,
-        y_consonant_ipa=d.y_consonant_ipa,
-        ll_ipa=d.ll_ipa,
-        x_intervocalic_default=d.x_intervocalic_default,
-        x_initial_before_vowel=d.x_initial_before_vowel,
-        voiceless_velar_fricative=d.voiceless_velar_fricative,
-        trill_ipa=d.trill_ipa,
-        tap_ipa=d.tap_ipa,
-        nasal_assimilation=d.nasal_assimilation,
-        narrow_intervocalic_obstruents=d.narrow_intervocalic_obstruents,
+    """Backward-compatible alias for :func:`castilian_spanish_dialect` with id ``es-ES-distincion``."""
+    return castilian_spanish_dialect(
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+        dialect_id="es-ES-distincion",
     )
+
+
+def colombian_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Colombia (highland-oriented norm): seseo, yeísmo, /x/ (coastal [h] is common but not default here)."""
+    return _spanish_dialect_common(
+        id="es-CO",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def venezuelan_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Venezuela: seseo, yeísmo; ⟨j⟩/soft ⟨g⟩ often [h] — approximated as /h/."""
+    return _spanish_dialect_common(
+        id="es-VE",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="h",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def ecuadorian_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Ecuador: seseo, yeísmo, /x/ (Andean-influenced broad transcription)."""
+    return _spanish_dialect_common(
+        id="es-EC",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def peruvian_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Peru: seseo, yeísmo, /x/."""
+    return _spanish_dialect_common(
+        id="es-PE",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def chilean_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Chile: seseo, yeísmo; word-final /s/ often weakened — ``coda_s_mode=\"h\"`` (conservative: final only)."""
+    return _spanish_dialect_common(
+        id="es-CL",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="h",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def argentine_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Argentina (Río de la Plata): seseo, yeísmo rehilado as /ʒ/ for ⟨ll⟩/⟨y⟩."""
+    return _spanish_dialect_common(
+        id="es-AR",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʒ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def uruguayan_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Uruguay: same broad preset as Argentina (ʒ yeísmo)."""
+    return _spanish_dialect_common(
+        id="es-UY",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʒ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def bolivian_andean_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Bolivia (Andean, no yeísmo): ⟨ll⟩ → /ʎ/, consonantal ⟨y⟩ → /ʝ/."""
+    return _spanish_dialect_common(
+        id="es-BO",
+        ce_ci_z_ipa="s",
+        yeismo=False,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def paraguayan_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Paraguay: no yeísmo preset (⟨ll⟩ /ʎ/)."""
+    return _spanish_dialect_common(
+        id="es-PY",
+        ce_ci_z_ipa="s",
+        yeismo=False,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def cuban_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Cuba: seseo, yeísmo, /h/ for ⟨j⟩/soft ⟨g⟩; word-final /s/ → [h]."""
+    return _spanish_dialect_common(
+        id="es-CU",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="h",
+        coda_s_mode="h",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def dominican_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Dominican Republic: like Cuban preset (seseo, /h/, final /s/ → [h])."""
+    return _spanish_dialect_common(
+        id="es-DO",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="h",
+        coda_s_mode="h",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def puerto_rican_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Puerto Rico: seseo, yeísmo, /h/ for ⟨j⟩/soft ⟨g⟩; word-final /s/ weakened to [h]."""
+    return _spanish_dialect_common(
+        id="es-PR",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="h",
+        coda_s_mode="h",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+def guatemalan_spanish_dialect(*, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
+    """Guatemala / general Central American highland: seseo, yeísmo, /x/ (Caribbean coast differs)."""
+    return _spanish_dialect_common(
+        id="es-GT",
+        ce_ci_z_ipa="s",
+        yeismo=True,
+        y_consonant_ipa="ʝ",
+        ll_ipa="ʎ",
+        voiceless_velar_fricative="x",
+        coda_s_mode="keep",
+        narrow_intervocalic_obstruents=narrow_intervocalic_obstruents,
+    )
+
+
+_DIALECT_BUILDERS: dict[str, Callable[..., SpanishDialect]] = {
+    "es-MX": mexican_spanish_dialect,
+    "es-419": latin_american_neutral_dialect,
+    "es-ES": castilian_spanish_dialect,
+    "es-ES-distincion": peninsular_distincion_dialect,
+    "es-CO": colombian_spanish_dialect,
+    "es-VE": venezuelan_spanish_dialect,
+    "es-EC": ecuadorian_spanish_dialect,
+    "es-PE": peruvian_spanish_dialect,
+    "es-CL": chilean_spanish_dialect,
+    "es-AR": argentine_spanish_dialect,
+    "es-UY": uruguayan_spanish_dialect,
+    "es-BO": bolivian_andean_spanish_dialect,
+    "es-PY": paraguayan_spanish_dialect,
+    "es-CU": cuban_spanish_dialect,
+    "es-DO": dominican_spanish_dialect,
+    "es-PR": puerto_rican_spanish_dialect,
+    "es-GT": guatemalan_spanish_dialect,
+}
+
+
+def dialect_ids() -> tuple[str, ...]:
+    """Sorted CLI / preset ids for :func:`dialect_from_cli_id`."""
+    return tuple(sorted(_DIALECT_BUILDERS.keys()))
+
+
+def dialect_from_cli_id(
+    cli_id: str, *, narrow_intervocalic_obstruents: bool = True
+) -> SpanishDialect:
+    """Build a :class:`SpanishDialect` from a ``--dialect`` string (see :func:`dialect_ids`)."""
+    key = cli_id.strip()
+    if key not in _DIALECT_BUILDERS:
+        raise ValueError(f"unknown dialect id {cli_id!r}; choose one of {dialect_ids()}")
+    return _DIALECT_BUILDERS[key](narrow_intervocalic_obstruents=narrow_intervocalic_obstruents)
+
+
+# Default eSpeak NG voice per dialect id (used when ``--espeak-voice`` is omitted).
+_DEFAULT_ESPEAK_VOICE_BY_DIALECT: dict[str, str] = {
+    "es-MX": "es-419",
+    "es-419": "es-419",
+    "es-ES": "es",
+    "es-ES-distincion": "es",
+    "es-CO": "es-419",
+    "es-VE": "es-419",
+    "es-EC": "es-419",
+    "es-PE": "es-419",
+    "es-CL": "es-419",
+    "es-AR": "es-419",
+    "es-UY": "es-419",
+    "es-BO": "es-419",
+    "es-PY": "es-419",
+    "es-CU": "es-419",
+    "es-DO": "es-419",
+    "es-PR": "es-419",
+    "es-GT": "es-419",
+}
+
+
+def default_espeak_voice_for_dialect(dialect_cli_id: str) -> str:
+    """eSpeak voice name suggested for *dialect_cli_id* (fallback ``es-419``)."""
+    return _DEFAULT_ESPEAK_VOICE_BY_DIALECT.get(dialect_cli_id.strip(), _DEFAULT_ESPEAK_VOICE)
 
 
 _VOWELS = frozenset("aeiouáéíóúü")
@@ -315,6 +610,20 @@ def _apply_narrow_intervocalic_obstruents(ipa: str) -> str:
     return s
 
 
+def _apply_coda_s_weakening(ipa: str, mode: str) -> str:
+    """
+    Word-final /s/ only (avoids mangling onset /s/ in e.g. *estás*).
+
+    *mode* ``\"h\"`` → final ``s`` becomes ``h``; ``\"drop\"`` removes it.
+    Skips endings that are part of a ``ks`` cluster (e.g. *taxi*).
+    """
+    if mode not in ("h", "drop") or not ipa:
+        return ipa
+    if not ipa.endswith("s") or ipa.endswith("ks"):
+        return ipa
+    return ipa[:-1] + ("h" if mode == "h" else "")
+
+
 def _postprocess_lexical_ipa(ipa: str, dialect: SpanishDialect, *, with_stress: bool) -> str:
     """
     Post-process dictionary IPA: align stress with onset–nucleus style unless a lone ˈ
@@ -328,6 +637,7 @@ def _postprocess_lexical_ipa(ipa: str, dialect: SpanishDialect, *, with_stress: 
         s = ipa
     if dialect.narrow_intervocalic_obstruents:
         s = _apply_narrow_intervocalic_obstruents(s)
+    s = _apply_coda_s_weakening(s, dialect.coda_s_mode)
     return s
 
 
@@ -568,6 +878,7 @@ def word_to_ipa(word: str, dialect: SpanishDialect, *, with_stress: bool = True)
     ipa = "".join(parts)
     if dialect.narrow_intervocalic_obstruents:
         ipa = _apply_narrow_intervocalic_obstruents(ipa)
+    ipa = _apply_coda_s_weakening(ipa, dialect.coda_s_mode)
     return ipa
 
 
@@ -617,8 +928,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--dialect",
         default="es-MX",
-        choices=("es-MX", "es-ES-distincion"),
-        help="Pronunciation preset (default: Mexican Spanish).",
+        choices=dialect_ids(),
+        metavar="ID",
+        help=f"Pronunciation preset (default: es-MX). IDs: {', '.join(dialect_ids())}.",
     )
     p.add_argument("--no-stress", action="store_true", help="Omit primary stress marks ˈ.")
     p.add_argument("--stdin", action="store_true", help="Read full text from stdin (ignores positional text).")
@@ -630,9 +942,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--espeak-voice",
         type=str,
-        default=_DEFAULT_ESPEAK_VOICE,
+        default=None,
         metavar="VOICE",
-        help=f"eSpeak voice for the reference line (default: {_DEFAULT_ESPEAK_VOICE}).",
+        help="eSpeak voice for the reference line (default: pick by --dialect, else es-419).",
     )
     p.add_argument(
         "--broad-phonemes",
@@ -640,14 +952,6 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         help="Keep intervocalic /b d ɡ/ as stops (no β ð ɣ); default matches narrower Spanish allophones.",
     )
     return p
-
-
-def _dialect_from_name(name: str, *, narrow_intervocalic_obstruents: bool = True) -> SpanishDialect:
-    if name == "es-MX":
-        return mexican_spanish_dialect(narrow_intervocalic_obstruents=narrow_intervocalic_obstruents)
-    if name == "es-ES-distincion":
-        return peninsular_distincion_dialect(narrow_intervocalic_obstruents=narrow_intervocalic_obstruents)
-    raise ValueError(name)
 
 
 def main(argv: Iterable[str] | None = None) -> None:
@@ -658,13 +962,14 @@ def main(argv: Iterable[str] | None = None) -> None:
         raw = sys.stdin.read()
     else:
         raw = " ".join(args.text)
-    dialect = _dialect_from_name(
+    dialect = dialect_from_cli_id(
         args.dialect,
         narrow_intervocalic_obstruents=not args.broad_phonemes,
     )
     print(text_to_ipa(raw, dialect, with_stress=not args.no_stress))
     if not args.no_espeak:
-        espeak_line = espeak_ng_ipa_line(raw, voice=args.espeak_voice)
+        voice = args.espeak_voice or default_espeak_voice_for_dialect(args.dialect)
+        espeak_line = espeak_ng_ipa_line(raw, voice=voice)
         if espeak_line is not None:
             print(f"{espeak_line} (espeak-ng)")
 
