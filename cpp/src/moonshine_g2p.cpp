@@ -21,6 +21,28 @@ std::string trim_copy(std::string_view s) {
   return std::string(s.substr(a, b - a));
 }
 
+std::filesystem::path resolve_french_dict_path(const MoonshineG2POptions& opt) {
+  if (opt.french_dict_path) {
+    return *opt.french_dict_path;
+  }
+  const std::filesystem::path under_model = opt.model_root / "fr" / "dict.tsv";
+  if (std::filesystem::is_regular_file(under_model)) {
+    return under_model;
+  }
+  return opt.model_root.parent_path() / "data" / "fr" / "dict.tsv";
+}
+
+std::filesystem::path resolve_french_csv_dir(const MoonshineG2POptions& opt) {
+  if (opt.french_csv_dir) {
+    return *opt.french_csv_dir;
+  }
+  const std::filesystem::path data_fr = opt.model_root.parent_path() / "data" / "fr";
+  if (std::filesystem::is_directory(data_fr)) {
+    return data_fr;
+  }
+  return opt.model_root / "fr";
+}
+
 /// Normalize user input like ``es_ar`` / ``es-mx`` to keys accepted by
 /// ``spanish_dialect_from_cli_id`` (e.g. ``es-AR``, ``es-MX``).
 std::string normalize_spanish_dialect_cli_key(std::string_view raw) {
@@ -156,6 +178,25 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
     return;
   }
 
+  if (dialect_resolves_to_french_rules(trimmed)) {
+    const std::filesystem::path fdict = resolve_french_dict_path(options);
+    if (!std::filesystem::is_regular_file(fdict)) {
+      throw std::runtime_error(
+          "French G2P: lexicon not found at " + fdict.generic_string() +
+          " (set MoonshineG2POptions::french_dict_path)");
+    }
+    const std::filesystem::path fcsv = resolve_french_csv_dir(options);
+    FrenchRuleG2p::Options fo;
+    fo.with_stress = options.french_with_stress;
+    fo.liaison = options.french_liaison;
+    fo.liaison_optional = options.french_liaison_optional;
+    fo.oov_rules = options.french_oov_rules;
+    fo.expand_cardinal_digits = options.french_expand_cardinal_digits;
+    french_.emplace(fdict, fcsv, fo);
+    dialect_id_ = "fr-FR";
+    return;
+  }
+
   dialect_id_ = dialect_to_onnx_model_subdir(trimmed);
   std::optional<std::filesystem::path> dict_path;
   std::optional<std::filesystem::path> het_onnx_path;
@@ -177,6 +218,9 @@ std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWord
   }
   if (german_.has_value()) {
     return german_->text_to_ipa(std::string(text), per_word_log);
+  }
+  if (french_.has_value()) {
+    return french_->text_to_ipa(std::string(text), per_word_log);
   }
   if (onnx_) {
     return onnx_->text_to_ipa(text, per_word_log);
