@@ -142,6 +142,20 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
   } catch (const std::invalid_argument&) {
   }
 
+  if (dialect_resolves_to_german_rules(trimmed)) {
+    const std::filesystem::path gdict =
+        options.german_dict_path.value_or(options.model_root / "de" / "dict.tsv");
+    if (!std::filesystem::is_regular_file(gdict)) {
+      throw std::runtime_error(
+          "German G2P: lexicon not found at " + gdict.generic_string() +
+          " (set MoonshineG2POptions::german_dict_path)");
+    }
+    german_.emplace(gdict, GermanRuleG2p::Options{.with_stress = options.german_with_stress,
+                                                  .vocoder_stress = options.german_vocoder_stress});
+    dialect_id_ = "de-DE";
+    return;
+  }
+
   dialect_id_ = dialect_to_onnx_model_subdir(trimmed);
   std::optional<std::filesystem::path> dict_path;
   std::optional<std::filesystem::path> het_onnx_path;
@@ -160,6 +174,9 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
 std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWordLog>* per_word_log) {
   if (spanish_.has_value()) {
     return spanish_text_to_ipa(std::string(text), *spanish_, spanish_with_stress_, per_word_log);
+  }
+  if (german_.has_value()) {
+    return german_->text_to_ipa(std::string(text), per_word_log);
   }
   if (onnx_) {
     return onnx_->text_to_ipa(text, per_word_log);

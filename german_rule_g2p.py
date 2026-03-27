@@ -2,7 +2,7 @@
 """
 Rule- and lexicon-based German grapheme-to-phoneme (Standard / High German, broad IPA).
 
-* In-vocabulary words are taken from ``data/de/dict.tsv`` (word ``\\t`` IPA, first line wins
+* In-vocabulary words are taken from ``models/de/dict.tsv`` (word ``\\t`` IPA, first line wins
   for duplicate spellings).
 * Out-of-vocabulary tokens use a compact letter-guessing pass (digraphs, *ch* context,
   final devoicing, *ig*-ending, word-initial *st*/*sp*, etc.) plus rough orthographic
@@ -35,7 +35,7 @@ from pathlib import Path
 _DEFAULT_ESPEAK_VOICE = "de"
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_DEFAULT_DICT_PATH = _REPO_ROOT / "data" / "de" / "dict.tsv"
+_DEFAULT_DICT_PATH = _REPO_ROOT / "models" / "de" / "dict.tsv"
 
 _LEXICON_CACHE: dict[str, str] | None = None
 _LEXICON_PATH: Path | None = None
@@ -769,7 +769,7 @@ def text_to_ipa(
 
 def _build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        description="German text to IPA using data/de/dict.tsv plus rules for OOV."
+        description="German text to IPA using models/de/dict.tsv plus rules for OOV."
     )
     p.add_argument("text", nargs="*", help="German text (if empty, read stdin)")
     p.add_argument(

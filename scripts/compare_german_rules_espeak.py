@@ -137,7 +137,7 @@ def _lev(a: str, b: str) -> int:
 
 def main() -> None:
     voice = "de"
-    dict_path = _REPO / "data" / "de" / "dict.tsv"
+    dict_path = _REPO / "models" / "de" / "dict.tsv"
     lex = load_german_lexicon(dict_path)
 
     rows: list[tuple[str, str, str | None, str, int, int]] = []

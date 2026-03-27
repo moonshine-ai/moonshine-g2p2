@@ -1,6 +1,7 @@
 #pragma once
 
 #include "moonshine_g2p/g2p_word_log.hpp"
+#include "moonshine_g2p/lang-specific/german.hpp"
 #include "moonshine_g2p/lang-specific/spanish.hpp"
 
 #include <filesystem>
@@ -25,14 +26,18 @@ struct MoonshineG2POptions {
   /// Used when the dialect resolves to rule-based Spanish G2P.
   bool spanish_with_stress = true;
   bool spanish_narrow_obstruents = true;
+  /// German rule G2P (``de``, ``de-DE``, ``german``): ``<model_root>/de/dict.tsv`` (default ``models/de/dict.tsv``) if unset.
+  std::optional<std::filesystem::path> german_dict_path;
+  bool german_with_stress = true;
+  bool german_vocoder_stress = true;
   /// If set, override paths from g2p-config.json (same semantics as the CLI).
   std::optional<std::filesystem::path> dict_path_override;
   std::optional<std::filesystem::path> heteronym_onnx_override;
   std::optional<std::filesystem::path> oov_onnx_override;
 };
 
-/// Single entry point: *dialect_id* is a tag such as ``es-AR``, ``es_ar``, or ``en_us``.
-/// Rule-based engines are used when implemented (Spanish); otherwise ONNX models under
+/// Single entry point: *dialect_id* is a tag such as ``es-AR``, ``de``, ``de-DE``, or ``en_us``.
+/// Rule-based engines are used when implemented (Spanish, German); otherwise ONNX models under
 /// ``model_root`` / ``<dialect_with_underscores>`` / ``g2p-config.json`` are loaded.
 class MoonshineG2P {
  public:
@@ -48,6 +53,7 @@ class MoonshineG2P {
                                         std::vector<G2pWordLog>* per_word_log = nullptr);
 
   [[nodiscard]] bool uses_spanish_rules() const { return spanish_.has_value(); }
+  [[nodiscard]] bool uses_german_rules() const { return german_.has_value(); }
   [[nodiscard]] bool uses_onnx() const { return onnx_ != nullptr; }
 
   /// Canonical dialect id (e.g. ``es-AR`` for Spanish, or the normalized ONNX subdir form
@@ -58,6 +64,7 @@ class MoonshineG2P {
   std::string dialect_id_;
   std::optional<SpanishDialect> spanish_;
   bool spanish_with_stress_ = true;
+  std::optional<GermanRuleG2p> german_;
   std::unique_ptr<MoonshineOnnxG2p> onnx_;
 };
 

@@ -21,6 +21,7 @@ TEST_CASE("MoonshineG2P ONNX fallback when MOONSHINE_G2P_MODELS_ROOT is set") {
   MoonshineG2P g2p(dialect_dir, opt);
   CHECK(g2p.uses_onnx());
   CHECK_FALSE(g2p.uses_spanish_rules());
+  CHECK_FALSE(g2p.uses_german_rules());
   const std::string out = g2p.text_to_ipa("Hello world!");
   CHECK(out.size() > 0);
 }

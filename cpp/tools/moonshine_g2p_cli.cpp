@@ -10,6 +10,7 @@
 
 using moonshine_g2p::MoonshineG2P;
 using moonshine_g2p::MoonshineG2POptions;
+using moonshine_g2p::dialect_resolves_to_german_rules;
 using moonshine_g2p::dialect_resolves_to_spanish_rules;
 using moonshine_g2p::format_g2p_word_log_line;
 using moonshine_g2p::spanish_dialect_cli_ids;
@@ -23,11 +24,14 @@ void usage(const char *argv0) {
       << "       [--dict PATH] [--heteronym-onnx PATH] [--oov-onnx PATH]\n"
       << "       [--cuda] [--log-words|-v] [--debug-heteronym]\n"
       << "       [--no-stress] [--broad-phonemes] [--stdin]\n"
+      << "       [--german-dict PATH] [--german-syllable-initial-stress]\n"
       << "       [--print-spanish-dialects] [TEXT...]\n"
       << "  Default dialect: en_us (ONNX under <model-root>/en_us/). Default phrase when no TEXT: "
          "\"Hello world!\".\n"
       << "  Spanish dialects use rule-based G2P (no ONNX). With a Spanish dialect and no TEXT, "
          "stdin is read unless you pass --stdin explicitly for empty input.\n"
+      << "  German (de, de-DE, german): rule-based G2P with <model-root>/de/dict.tsv by default; "
+         "override with --german-dict.\n"
       << "  -d PATH is an alias for --dict PATH.\n";
 }
 
@@ -74,8 +78,13 @@ int main(int argc, char **argv) {
       dialect_str = argv[++i];
     } else if (a == "--model-root" && i + 1 < argc) {
       opt.model_root = argv[++i];
+    } else if (a == "--german-dict" && i + 1 < argc) {
+      opt.german_dict_path = argv[++i];
+    } else if (a == "--german-syllable-initial-stress") {
+      opt.german_vocoder_stress = false;
     } else if (a == "--no-stress") {
       opt.spanish_with_stress = false;
+      opt.german_with_stress = false;
     } else if (a == "--broad-phonemes") {
       opt.spanish_narrow_obstruents = false;
     } else if (a == "--stdin") {
@@ -103,7 +112,8 @@ int main(int argc, char **argv) {
       phrase += text_parts[t];
     }
   } else if (force_stdin ||
-             dialect_resolves_to_spanish_rules(dialect_str, opt.spanish_narrow_obstruents)) {
+             dialect_resolves_to_spanish_rules(dialect_str, opt.spanish_narrow_obstruents) ||
+             dialect_resolves_to_german_rules(dialect_str)) {
     phrase = read_all_stdin();
   } else {
     phrase = "Hello world!";
