@@ -1,6 +1,7 @@
 #pragma once
 
 #include "moonshine_g2p/g2p_word_log.hpp"
+#include "moonshine_g2p/lang-specific/dutch.hpp"
 #include "moonshine_g2p/lang-specific/french.hpp"
 #include "moonshine_g2p/lang-specific/german.hpp"
 #include "moonshine_g2p/lang-specific/spanish.hpp"
@@ -39,6 +40,11 @@ struct MoonshineG2POptions {
   bool french_liaison_optional = true;
   bool french_oov_rules = true;
   bool french_expand_cardinal_digits = true;
+  /// Dutch rule G2P (``nl``, ``nl-NL``, ``dutch``): ``<model-root>/../data/nl/dict.tsv`` or ``<model-root>/nl/dict.tsv``.
+  std::optional<std::filesystem::path> dutch_dict_path;
+  bool dutch_with_stress = true;
+  bool dutch_vocoder_stress = true;
+  bool dutch_expand_cardinal_digits = true;
   /// If set, override paths from g2p-config.json (same semantics as the CLI).
   std::optional<std::filesystem::path> dict_path_override;
   std::optional<std::filesystem::path> heteronym_onnx_override;
@@ -46,7 +52,7 @@ struct MoonshineG2POptions {
 };
 
 /// Single entry point: *dialect_id* is a tag such as ``es-AR``, ``de``, ``de-DE``, or ``en_us``.
-/// Rule-based engines are used when implemented (Spanish, German, French); otherwise ONNX models under
+/// Rule-based engines are used when implemented (Spanish, German, French, Dutch); otherwise ONNX models under
 /// ``model_root`` / ``<dialect_with_underscores>`` / ``g2p-config.json`` are loaded.
 class MoonshineG2P {
  public:
@@ -64,6 +70,7 @@ class MoonshineG2P {
   [[nodiscard]] bool uses_spanish_rules() const { return spanish_.has_value(); }
   [[nodiscard]] bool uses_german_rules() const { return german_.has_value(); }
   [[nodiscard]] bool uses_french_rules() const { return french_.has_value(); }
+  [[nodiscard]] bool uses_dutch_rules() const { return dutch_.has_value(); }
   [[nodiscard]] bool uses_onnx() const { return onnx_ != nullptr; }
 
   /// Canonical dialect id (e.g. ``es-AR`` for Spanish, or the normalized ONNX subdir form
@@ -76,6 +83,7 @@ class MoonshineG2P {
   bool spanish_with_stress_ = true;
   std::optional<GermanRuleG2p> german_;
   std::optional<FrenchRuleG2p> french_;
+  std::optional<DutchRuleG2p> dutch_;
   std::unique_ptr<MoonshineOnnxG2p> onnx_;
 };
 

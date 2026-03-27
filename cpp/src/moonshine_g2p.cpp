@@ -197,6 +197,22 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
     return;
   }
 
+  if (dialect_resolves_to_dutch_rules(trimmed)) {
+    const std::filesystem::path ndict =
+        options.dutch_dict_path.value_or(resolve_dutch_dict_path(options.model_root));
+    if (!std::filesystem::is_regular_file(ndict)) {
+      throw std::runtime_error(
+          "Dutch G2P: lexicon not found at " + ndict.generic_string() +
+          " (set MoonshineG2POptions::dutch_dict_path)");
+    }
+    dutch_.emplace(ndict, DutchRuleG2p::Options{.with_stress = options.dutch_with_stress,
+                                                  .vocoder_stress = options.dutch_vocoder_stress,
+                                                  .expand_cardinal_digits =
+                                                      options.dutch_expand_cardinal_digits});
+    dialect_id_ = "nl-NL";
+    return;
+  }
+
   dialect_id_ = dialect_to_onnx_model_subdir(trimmed);
   std::optional<std::filesystem::path> dict_path;
   std::optional<std::filesystem::path> het_onnx_path;
@@ -221,6 +237,9 @@ std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWord
   }
   if (french_.has_value()) {
     return french_->text_to_ipa(std::string(text), per_word_log);
+  }
+  if (dutch_.has_value()) {
+    return dutch_->text_to_ipa(std::string(text), per_word_log);
   }
   if (onnx_) {
     return onnx_->text_to_ipa(text, per_word_log);
