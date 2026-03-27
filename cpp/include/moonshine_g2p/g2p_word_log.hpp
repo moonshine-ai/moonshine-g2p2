@@ -9,6 +9,7 @@ namespace moonshine_g2p {
 enum class G2pWordPath {
   kSkippedEmptyKey,  // normalize_word_for_lookup produced nothing
   kTokenNotLocatedInText,  // could not align token in full text (skipped)
+  kRuleBasedG2p,  // language-specific rule engine (e.g. Spanish grapheme rules)
   kDictUnambiguous,  // exactly one CMUdict pronunciation
   kDictHeteronym,  // multiple pronunciations; heteronym ONNX chose one
   kDictFirstAlternativeNoHeteronymModel,  // multiple pronunciations; no model — first alt

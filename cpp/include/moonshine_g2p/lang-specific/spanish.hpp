@@ -5,6 +5,8 @@
 
 namespace moonshine_g2p {
 
+struct G2pWordLog;
+
 /// Pronunciation preset for rule-based Spanish G2P (mirrors ``spanish_rule_g2p.SpanishDialect``).
 struct SpanishDialect {
   std::string id;
@@ -34,7 +36,9 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
                                 bool with_stress = true);
 
 /// Tokenize like Python ``text_to_ipa`` (Spanish letters + digits; collapse spaces).
+/// If *per_word_log* is non-null, appends one entry per Spanish word span (rule-based path).
 std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect,
-                                  bool with_stress = true);
+                                bool with_stress = true,
+                                std::vector<G2pWordLog> *per_word_log = nullptr);
 
 } // namespace moonshine_g2p

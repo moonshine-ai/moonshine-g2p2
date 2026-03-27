@@ -10,6 +10,8 @@ const char* g2p_word_path_tag(G2pWordPath path) {
       return "skip-empty-key";
     case G2pWordPath::kTokenNotLocatedInText:
       return "skip-not-located";
+    case G2pWordPath::kRuleBasedG2p:
+      return "rules";
     case G2pWordPath::kDictUnambiguous:
       return "dict";
     case G2pWordPath::kDictHeteronym:

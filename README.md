@@ -17,6 +17,6 @@ cd cpp
 mkdir -p build
 cd build
 cmake ..
-cmake --build
-./moonshine_onnx_g2p "Live, laugh, love"
+cmake --build .
+./moonshine_g2p --model-root ../models --dialect en_us "Live, laugh, love"
 ```

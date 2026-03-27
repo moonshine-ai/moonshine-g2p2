@@ -18,24 +18,20 @@ def _find_cli_binary() -> Path:
         p = Path(env)
         if p.is_file():
             return p
-    for rel in (
-        Path("cpp/build-core/spanish_rule_g2p"),
-        Path("cpp/build/spanish_rule_g2p"),
-    ):
+    for rel in (Path("cpp/build/moonshine_g2p"),):
         p = ROOT / rel
         if p.is_file():
             return p
     raise unittest.SkipTest(
-        "spanish_rule_g2p binary not found; build with "
-        "`cmake -S cpp -B cpp/build-core -DMOONSHINE_G2P_BUILD_ONNX=OFF && "
-        "cmake --build cpp/build-core` "
-        "or set SPANISH_RULE_G2P_CPP to the executable path."
+        "moonshine_g2p binary not found; build with "
+        "`cmake -S cpp -B cpp/build && cmake --build cpp/build` "
+        "(ONNX enabled) or set SPANISH_RULE_G2P_CPP to the executable path."
     )
 
 
 def _run_cpp(text: str, dialect: str, *, with_stress: bool, narrow: bool) -> str:
     bin_path = _find_cli_binary()
-    cmd: list[str] = [str(bin_path), "--dialect", dialect]
+    cmd: list[str] = [str(bin_path), "--dialect", dialect, "--stdin"]
     if not with_stress:
         cmd.append("--no-stress")
     if not narrow:
@@ -44,6 +40,7 @@ def _run_cpp(text: str, dialect: str, *, with_stress: bool, narrow: bool) -> str
     proc = subprocess.run(
         cmd,
         cwd=ROOT,
+        input=text,
         capture_output=True,
         text=True,
         check=False,

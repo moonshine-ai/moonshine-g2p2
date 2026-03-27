@@ -1,3 +1,4 @@
+#include "moonshine_g2p/g2p_word_log.hpp"
 #include "moonshine_g2p/lang-specific/spanish.hpp"
 #include "moonshine_g2p/utf8_utils.hpp"
 
@@ -1054,7 +1055,8 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
   return ipa;
 }
 
-std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect, bool with_stress) {
+std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect, bool with_stress,
+                                std::vector<G2pWordLog> *per_word_log) {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -1092,7 +1094,13 @@ std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &d
       } else {
         wipa = spanish_word_to_ipa(tok, dialect, with_stress);
       }
-      out += wipa;
+      if (per_word_log != nullptr) {
+        per_word_log->push_back(
+            G2pWordLog{tok, k, G2pWordPath::kRuleBasedG2p, std::move(wipa)});
+        out += per_word_log->back().ipa;
+      } else {
+        out += wipa;
+      }
       continue;
     }
     size_t start = pos;
