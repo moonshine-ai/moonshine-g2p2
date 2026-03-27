@@ -20,3 +20,10 @@ cmake ..
 cmake --build .
 ./moonshine_g2p --model-root ../models --dialect en_us "Live, laugh, love"
 ```
+
+## Acknowledgements
+
+CMU
+
+https://github.com/hbenbel/French-Dictionary
+
