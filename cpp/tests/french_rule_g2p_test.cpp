@@ -80,3 +80,19 @@ TEST_CASE("french: punctuation keeps space before next word" * doctest::skip(!fr
   CHECK(g.text_to_ipa("Bonjour! Salut").find("! ") != std::string::npos);
   CHECK(g.text_to_ipa("Vu? Oui").find("? ") != std::string::npos);
 }
+
+TEST_CASE("french: hyphenated OOV allez-vous matches Python (UTF-8 trim + stress)" *
+          doctest::skip(!french_dict_present())) {
+  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto csv = dict.parent_path();
+  moonshine_g2p::FrenchRuleG2p g(dict, csv);
+  CHECK(g.text_to_ipa("comment allez-vous") == "kɔmˈɑ̃ allˈə-vˈu");
+}
+
+TEST_CASE("french: uppercase accented letters in words (Saint-Étienne)" *
+          doctest::skip(!french_dict_present())) {
+  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto csv = dict.parent_path();
+  moonshine_g2p::FrenchRuleG2p g(dict, csv);
+  CHECK(g.text_to_ipa("Saint-\xC3\x89tienne") == "sˈɛ̃-etjˈɛ̃n");
+}

@@ -64,6 +64,46 @@ bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& ou
 }
 
 char32_t french_tolower_cp(char32_t c) {
+  switch (c) {
+  case U'À':
+    return U'à';
+  case U'Â':
+    return U'â';
+  case U'Ä':
+    return U'ä';
+  case U'É':
+    return U'é';
+  case U'È':
+    return U'è';
+  case U'Ê':
+    return U'ê';
+  case U'Ë':
+    return U'ë';
+  case U'Î':
+    return U'î';
+  case U'Ï':
+    return U'ï';
+  case U'Ô':
+    return U'ô';
+  case U'Ö':
+    return U'ö';
+  case U'Ù':
+    return U'ù';
+  case U'Û':
+    return U'û';
+  case U'Ü':
+    return U'ü';
+  case U'Ÿ':
+    return U'ÿ';
+  case U'Ç':
+    return U'ç';
+  case U'Œ':
+    return U'œ';
+  case U'Æ':
+    return U'æ';
+  default:
+    break;
+  }
   if (c >= U'A' && c <= U'Z') {
     return c + 32;
   }
@@ -219,6 +259,34 @@ bool prev_is_nucleus_idx(const std::string& s, int idx) {
   return false;
 }
 
+size_t utf8_last_cp_start(const std::string& s) {
+  if (s.empty()) {
+    return std::string::npos;
+  }
+  size_t p = s.size();
+  while (p > 0) {
+    --p;
+    if ((static_cast<unsigned char>(s[p]) & 0xC0) != 0x80) {
+      return p;
+    }
+  }
+  return 0;
+}
+
+size_t utf8_prev_cp_start(const std::string& s, size_t cp_start) {
+  if (cp_start == 0) {
+    return std::string::npos;
+  }
+  size_t p = cp_start;
+  while (p > 0) {
+    --p;
+    if ((static_cast<unsigned char>(s[p]) & 0xC0) != 0x80) {
+      return p;
+    }
+  }
+  return std::string::npos;
+}
+
 std::string trim_final_by_orthography(std::string ipa, const std::u32string& ortho_full) {
   std::u32string o = ortho_full;
   while (!o.empty() && o.back() == U'e') {
@@ -228,31 +296,64 @@ std::string trim_final_by_orthography(std::string ipa, const std::u32string& ort
     return ipa;
   }
   std::string s = ipa;
-  while (s.size() >= 2 && (s.back() == 't' || s.back() == 'd')) {
-    if (prev_is_nucleus_idx(s, static_cast<int>(s.size()) - 2)) {
-      s.pop_back();
-    } else {
+  while (!s.empty()) {
+    const size_t last_st = utf8_last_cp_start(s);
+    if (last_st == std::string::npos) {
       break;
     }
+    char32_t last_cp = 0;
+    size_t adv = 0;
+    utf8_decode_at(s, last_st, last_cp, adv);
+    if (last_cp != U't' && last_cp != U'd') {
+      break;
+    }
+    const size_t prev_st = utf8_prev_cp_start(s, last_st);
+    if (prev_st == std::string::npos ||
+        !prev_is_nucleus_idx(s, static_cast<int>(prev_st))) {
+      break;
+    }
+    s.erase(last_st, adv);
   }
-  while (s.size() >= 2 && (s.back() == 'p' || s.back() == 'b')) {
-    if (prev_is_nucleus_idx(s, static_cast<int>(s.size()) - 2)) {
-      s.pop_back();
-    } else {
+  while (!s.empty()) {
+    const size_t last_st = utf8_last_cp_start(s);
+    if (last_st == std::string::npos) {
       break;
     }
+    char32_t last_cp = 0;
+    size_t adv = 0;
+    utf8_decode_at(s, last_st, last_cp, adv);
+    if (last_cp != U'p' && last_cp != U'b') {
+      break;
+    }
+    const size_t prev_st = utf8_prev_cp_start(s, last_st);
+    if (prev_st == std::string::npos ||
+        !prev_is_nucleus_idx(s, static_cast<int>(prev_st))) {
+      break;
+    }
+    s.erase(last_st, adv);
   }
   if (o.empty()) {
     return s;
   }
   const char32_t lastg = o.back();
   if (lastg == U's' || lastg == U'x' || lastg == U'z') {
-    while (s.size() >= 2 && (s.back() == 's' || s.back() == 'z')) {
-      if (prev_is_nucleus_idx(s, static_cast<int>(s.size()) - 2)) {
-        s.pop_back();
-      } else {
+    while (!s.empty()) {
+      const size_t last_st = utf8_last_cp_start(s);
+      if (last_st == std::string::npos) {
         break;
       }
+      char32_t last_cp = 0;
+      size_t adv = 0;
+      utf8_decode_at(s, last_st, last_cp, adv);
+      if (last_cp != U's' && last_cp != U'z') {
+        break;
+      }
+      const size_t prev_st = utf8_prev_cp_start(s, last_st);
+      if (prev_st == std::string::npos ||
+          !prev_is_nucleus_idx(s, static_cast<int>(prev_st))) {
+        break;
+      }
+      s.erase(last_st, adv);
     }
   }
   return s;

@@ -86,7 +86,51 @@ bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& ou
 }
 
 char32_t french_tolower_cp(char32_t c) {
+  switch (c) {
+  case U'À':
+    return U'à';
+  case U'Â':
+    return U'â';
+  case U'Ä':
+    return U'ä';
+  case U'É':
+    return U'é';
+  case U'È':
+    return U'è';
+  case U'Ê':
+    return U'ê';
+  case U'Ë':
+    return U'ë';
+  case U'Î':
+    return U'î';
+  case U'Ï':
+    return U'ï';
+  case U'Ô':
+    return U'ô';
+  case U'Ö':
+    return U'ö';
+  case U'Ù':
+    return U'ù';
+  case U'Û':
+    return U'û';
+  case U'Ü':
+    return U'ü';
+  case U'Ÿ':
+    return U'ÿ';
+  case U'Ç':
+    return U'ç';
+  case U'Œ':
+    return U'œ';
+  case U'Æ':
+    return U'æ';
+  default:
+    break;
+  }
   if (c >= U'A' && c <= U'Z') {
+    return c + 32;
+  }
+  // Latin-1 uppercase letters (Python ``str.lower``); skip × (U+00D7) and ß (lowercase only).
+  if ((c >= U'\u00C0' && c <= U'\u00D6') || (c >= U'\u00D8' && c <= U'\u00DE')) {
     return c + 32;
   }
   return c;
@@ -118,20 +162,60 @@ std::string normalize_lookup_key_utf8(const std::string& word) {
   return out;
 }
 
+// Python ``re.UNICODE`` word chars in U+00AA..U+00FF (excludes × U+00D7 and ÷ U+00F7).
+bool is_latin1_supplement_python_word_char(char32_t cp) {
+  if (cp < U'\u00AA' || cp > U'\u00FF') {
+    return false;
+  }
+  if (cp == U'\u00D7' || cp == U'\u00F7') {
+    return false;
+  }
+  if (cp >= U'\u00C0' && cp <= U'\u00D6') {
+    return true;
+  }
+  if (cp >= U'\u00D8' && cp <= U'\u00F6') {
+    return true;
+  }
+  if (cp >= U'\u00F8' && cp <= U'\u00FF') {
+    return true;
+  }
+  return cp == U'\u00AA' || cp == U'\u00B2' || cp == U'\u00B3' || cp == U'\u00B5' || cp == U'\u00B9' ||
+         cp == U'\u00BA' || cp == U'\u00BC' || cp == U'\u00BD' || cp == U'\u00BE';
+}
+
+// Letterlike math symbols that are ``\w`` in Python 3 (e.g. U+2102 ℂ) but never appear in French lookup keys.
+constexpr std::array<char32_t, 46> kLetterlikeWordChars = {
+    U'\u2102', U'\u2107', U'\u210A', U'\u210B', U'\u210C', U'\u210D', U'\u210E', U'\u210F', U'\u2110', U'\u2111',
+    U'\u2112', U'\u2113', U'\u2115', U'\u2119', U'\u211A', U'\u211B', U'\u211C', U'\u211D', U'\u2124', U'\u2126',
+    U'\u2128', U'\u212A', U'\u212B', U'\u212C', U'\u212D', U'\u212F', U'\u2130', U'\u2131', U'\u2132', U'\u2133',
+    U'\u2134', U'\u2135', U'\u2136', U'\u2137', U'\u2138', U'\u2139', U'\u213C', U'\u213D', U'\u213E', U'\u213F',
+    U'\u2145', U'\u2146', U'\u2147', U'\u2148', U'\u2149', U'\u214E'};
+
+bool is_letterlike_math_word_char(char32_t cp) {
+  return std::binary_search(kLetterlikeWordChars.begin(), kLetterlikeWordChars.end(), cp);
+}
+
 bool is_french_word_char(char32_t cp) {
-  if (cp == U'-' || cp == U'\'' || cp == U'\u2019') {
+  // Match Python ``[\w'-]+``: only ASCII apostrophe is in-word; U+2019 is punctuation (typographic ’).
+  if (cp == U'-' || cp == U'\'') {
     return true;
   }
   if (cp >= U'0' && cp <= U'9') {
     return true;
   }
-  if (cp >= U'a' && cp <= U'z') {
+  if (is_latin1_supplement_python_word_char(cp)) {
     return true;
   }
-  if (cp >= U'A' && cp <= U'Z') {
+  if (cp >= U'\u0100' && cp <= U'\u024F') {
+    return true;
+  }
+  if (is_letterlike_math_word_char(cp)) {
     return true;
   }
   const char32_t cl = french_tolower_cp(cp);
+  if (cl >= U'a' && cl <= U'z') {
+    return true;
+  }
   return cl == U'à' || cl == U'â' || cl == U'ä' || cl == U'é' || cl == U'è' || cl == U'ê' || cl == U'ë' ||
          cl == U'ï' || cl == U'î' || cl == U'ô' || cl == U'ù' || cl == U'û' || cl == U'ü' || cl == U'ÿ' ||
          cl == U'ç' || cl == U'œ' || cl == U'æ';
@@ -143,6 +227,19 @@ std::string to_lower_ascii(std::string_view w) {
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
   return s;
+}
+
+std::string to_lower_pos_inventory_utf8(const std::string& word) {
+  std::string out;
+  size_t i = 0;
+  while (i < word.size()) {
+    char32_t cp = 0;
+    size_t adv = 0;
+    utf8_decode_at(word, i, cp, adv);
+    utf8_append_codepoint(out, french_tolower_cp(cp));
+    i += adv;
+  }
+  return out;
 }
 
 void load_french_lexicon_file(const std::filesystem::path& path,
@@ -304,7 +401,10 @@ std::vector<std::string> below_100(int n) {
     if (u == 1) {
       return {"soixante-et-onze"};
     }
-    return {std::string("soixante-") + kUnits[static_cast<size_t>(10 + u)]};
+    if (u <= 6) {
+      return {std::string("soixante-") + kUnits[static_cast<size_t>(10 + u)]};
+    }
+    return {std::string("soixante-dix-") + kUnits[static_cast<size_t>(u)]};
   }
   const int u = n - 80;
   if (u == 0) {
@@ -476,7 +576,7 @@ const std::vector<std::string>& pos_scan_order() {
 
 std::vector<std::string> categories_for_form(
     const std::string& word, const std::unordered_map<std::string, std::unordered_set<std::string>>& inv) {
-  const std::string k = to_lower_ascii(word);
+  const std::string k = to_lower_pos_inventory_utf8(word);
   std::vector<std::string> found;
   for (const std::string& cat : pos_scan_order()) {
     const auto it = inv.find(cat);

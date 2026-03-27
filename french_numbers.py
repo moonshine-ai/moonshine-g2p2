@@ -157,7 +157,9 @@ def _below_100(n: int) -> list[str]:
         u = n - 70
         if u == 1:
             return ["soixante-et-onze"]
-        return [f"soixante-{_UNITS[10 + u]}"]
+        if u <= 6:
+            return [f"soixante-{_UNITS[10 + u]}"]
+        return [f"soixante-dix-{_UNITS[u]}"]
     if n < 100:
         u = n - 80
         if u == 0:
