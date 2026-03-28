@@ -930,7 +930,7 @@ std::string GermanRuleG2p::word_to_ipa(const std::string& word) const {
   return lookup_or_rules(wraw);
 }
 
-std::string GermanRuleG2p::text_to_ipa(const std::string& text, std::vector<G2pWordLog>* per_word_log) const {
+std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -1013,6 +1013,10 @@ bool dialect_resolves_to_german_rules(std::string_view dialect_id) {
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
   return s == "de" || s == "de-de" || s == "german";
+}
+
+std::vector<std::string> GermanRuleG2p::dialect_ids() {
+  return {"de", "de-DE", "de_de", "german"};
 }
 
 }  // namespace moonshine_g2p

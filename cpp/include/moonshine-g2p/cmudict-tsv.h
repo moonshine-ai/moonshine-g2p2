@@ -13,7 +13,7 @@ class CmudictTsv {
  public:
   explicit CmudictTsv(const std::filesystem::path& path);
 
-  [[nodiscard]] const std::vector<std::string>* lookup(std::string_view key) const;
+  const std::vector<std::string>* lookup(std::string_view key) const;
 
  private:
   std::unordered_map<std::string, std::vector<std::string>> ipa_by_word_;

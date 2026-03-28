@@ -1006,8 +1006,7 @@ std::string RussianRuleG2p::word_to_ipa(const std::string& word) const {
   return lookup_or_rules(wraw);
 }
 
-std::string RussianRuleG2p::text_to_ipa(const std::string& text,
-                                         std::vector<G2pWordLog>* per_word_log) const {
+std::string RussianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -1088,6 +1087,10 @@ bool dialect_resolves_to_russian_rules(std::string_view dialect_id) {
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
   return s == "ru" || s == "ru-ru" || s == "russian";
+}
+
+std::vector<std::string> RussianRuleG2p::dialect_ids() {
+  return {"ru", "ru-RU", "ru_ru", "russian"};
 }
 
 std::filesystem::path resolve_russian_dict_path(const std::filesystem::path& model_root) {

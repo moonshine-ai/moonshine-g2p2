@@ -1080,8 +1080,7 @@ std::string FrenchRuleG2p::word_to_ipa(const std::string& word) const {
   return word_to_ipa_impl(word, options_.expand_cardinal_digits);
 }
 
-std::string FrenchRuleG2p::text_to_ipa(const std::string& text,
-                                       std::vector<G2pWordLog>* per_word_log) const {
+std::string FrenchRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   return text_to_ipa_impl(text, options_.expand_cardinal_digits, per_word_log);
 }
 
@@ -1264,6 +1263,10 @@ bool dialect_resolves_to_french_rules(std::string_view dialect_id) {
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
   return s == "fr" || s == "fr-fr" || s == "french";
+}
+
+std::vector<std::string> FrenchRuleG2p::dialect_ids() {
+  return {"fr", "fr-FR", "fr_fr", "french"};
 }
 
 }  // namespace moonshine_g2p

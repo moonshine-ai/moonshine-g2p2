@@ -557,13 +557,11 @@ std::string PortugueseRuleG2p::text_to_ipa_no_expand(const std::string& text,
   return collapsed;
 }
 
-std::string PortugueseRuleG2p::text_to_ipa(const std::string& text,
-                                           std::vector<G2pWordLog>* per_word_log) const {
-  std::string work = text;
+std::string PortugueseRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   if (options_.expand_cardinal_digits) {
-    work = expand_digit_tokens_in_text(std::move(work), is_portugal_);
+    text = expand_digit_tokens_in_text(std::move(text), is_portugal_);
   }
-  return text_to_ipa_no_expand(work, per_word_log);
+  return text_to_ipa_no_expand(text, per_word_log);
 }
 
 static std::string norm_pt_dialect_key(std::string_view raw) {
@@ -587,6 +585,12 @@ bool dialect_resolves_to_brazilian_portuguese_rules(std::string_view dialect_id)
   const std::string s = norm_pt_dialect_key(dialect_id);
   return s == "pt-br" || s == "pt_br" || s == "brazil" || s == "brazilian-portuguese" || s == "brazilianportuguese" ||
          s == "portuguese-brazil";
+}
+
+std::vector<std::string> PortugueseRuleG2p::dialect_ids() {
+  return {"pt-PT", "pt_PT", "portugal", "european-portuguese", "europeanportuguese",
+          "pt-BR", "pt_BR", "brazil", "brazilian-portuguese", "brazilianportuguese",
+          "portuguese-brazil"};
 }
 
 std::filesystem::path resolve_portuguese_dict_path(const std::filesystem::path& model_root, bool is_portugal) {

@@ -767,6 +767,10 @@ std::vector<std::string> spanish_dialect_cli_ids() {
           "es-ES-distincion", "es-GT", "es-MX", "es-PE", "es-PR", "es-PY", "es-UY", "es-VE"};
 }
 
+std::vector<std::string> SpanishRuleG2p::dialect_ids() {
+  return spanish_dialect_cli_ids();
+}
+
 SpanishDialect spanish_dialect_from_cli_id(const std::string &cli_id, bool narrow_intervocalic_obstruents) {
   size_t a = 0;
   size_t b = cli_id.size();
@@ -851,7 +855,10 @@ SpanishDialect spanish_dialect_from_cli_id(const std::string &cli_id, bool narro
   throw std::invalid_argument("unknown dialect id \"" + key + "\"");
 }
 
-std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &dialect, bool with_stress) {
+SpanishRuleG2p::SpanishRuleG2p(SpanishDialect dialect, bool with_stress)
+    : dialect_(std::move(dialect)), with_stress_(with_stress) {}
+
+std::string SpanishRuleG2p::word_to_ipa(const std::string &word) const {
   const std::string wraw = [&]() {
     size_t a = 0, b = word.size();
     while (a < b && std::isspace(static_cast<unsigned char>(word[a]))) {
@@ -867,8 +874,8 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
   }
   const std::string wkey = spanish_unicode::word_key(wraw);
   const char *exc = lookup_x_exception(wkey);
-  if (exc != nullptr && dialect.id.starts_with("es")) {
-    return postprocess_lexical_ipa(std::string(exc), dialect, with_stress);
+  if (exc != nullptr && dialect_.id.starts_with("es")) {
+    return postprocess_lexical_ipa(std::string(exc), dialect_, with_stress_);
   }
 
   const std::u32string letters = filter_word_letters_utf32(wraw);
@@ -882,30 +889,29 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
 
   const auto syl = orthographic_syllables_utf8(spanish_unicode::utf32_to_utf8(lw));
   const size_t stress_idx =
-      with_stress ? default_stressed_syllable_index_v2(clean_syllable_word(lw)) : static_cast<size_t>(-1);
+      with_stress_ ? default_stressed_syllable_index_v2(clean_syllable_word(lw)) : static_cast<size_t>(-1);
   size_t offset = 0;
   std::vector<std::string> parts;
   for (const auto &s : syl) {
     const std::u32string su = spanish_unicode::utf8_to_utf32(s);
-    parts.push_back(letters_to_ipa_no_stress(su, dialect, offset));
+    parts.push_back(letters_to_ipa_no_stress(su, dialect_, offset));
     offset += su.size();
   }
-  if (with_stress && !parts.empty() && stress_idx < parts.size()) {
+  if (with_stress_ && !parts.empty() && stress_idx < parts.size()) {
     parts[stress_idx] = insert_primary_stress_before_vowel(parts[stress_idx]);
   }
   std::string ipa;
   for (const auto &p : parts) {
     ipa += p;
   }
-  if (dialect.narrow_intervocalic_obstruents) {
+  if (dialect_.narrow_intervocalic_obstruents) {
     ipa = apply_narrow_intervocalic_obstruents(ipa);
   }
-  ipa = apply_coda_s_weakening(std::move(ipa), dialect.coda_s_mode);
+  ipa = apply_coda_s_weakening(std::move(ipa), dialect_.coda_s_mode);
   return ipa;
 }
 
-std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect, bool with_stress,
-                                std::vector<G2pWordLog> *per_word_log) {
+std::string SpanishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog> *per_word_log) {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -939,9 +945,9 @@ std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &d
       const char *exc = lookup_x_exception(k);
       std::string wipa;
       if (exc != nullptr) {
-        wipa = postprocess_lexical_ipa(std::string(exc), dialect, with_stress);
+        wipa = postprocess_lexical_ipa(std::string(exc), dialect_, with_stress_);
       } else {
-        wipa = spanish_word_to_ipa(tok, dialect, with_stress);
+        wipa = word_to_ipa(tok);
       }
       if (per_word_log != nullptr) {
         per_word_log->push_back(
@@ -984,6 +990,15 @@ std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &d
     collapsed.pop_back();
   }
   return collapsed;
+}
+
+std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &dialect, bool with_stress) {
+  return SpanishRuleG2p(dialect, with_stress).word_to_ipa(word);
+}
+
+std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect, bool with_stress,
+                                std::vector<G2pWordLog> *per_word_log) {
+  return SpanishRuleG2p(dialect, with_stress).text_to_ipa(text, per_word_log);
 }
 
 } // namespace moonshine_g2p

@@ -1431,6 +1431,10 @@ bool dialect_resolves_to_dutch_rules(std::string_view dialect_id) {
   return s == "nl" || s == "nl-nl" || s == "dutch";
 }
 
+std::vector<std::string> DutchRuleG2p::dialect_ids() {
+  return {"nl", "nl-NL", "nl_nl", "dutch"};
+}
+
 std::string DutchRuleG2p::normalize_ipa_stress_for_vocoder(std::string ipa) {
   if (ipa.empty()) {
     return ipa;
@@ -1645,10 +1649,9 @@ std::string DutchRuleG2p::text_to_ipa_no_expand(const std::string& text,
   return collapsed;
 }
 
-std::string DutchRuleG2p::text_to_ipa(const std::string& text,
-                                      std::vector<G2pWordLog>* per_word_log) const {
+std::string DutchRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   if (options_.expand_cardinal_digits) {
-    return text_to_ipa_no_expand(expand_digit_tokens_in_text(text), per_word_log);
+    return text_to_ipa_no_expand(expand_digit_tokens_in_text(std::move(text)), per_word_log);
   }
   return text_to_ipa_no_expand(text, per_word_log);
 }

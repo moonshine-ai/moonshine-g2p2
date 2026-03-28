@@ -30,7 +30,7 @@ class MoonshineOnnxG2p {
 
   /// Converts *text* to a space-separated IPA line. If *per_word_log* is non-null, appends one
   /// G2pWordLog per surface token (including skips and unknowns).
-  [[nodiscard]] std::string text_to_ipa(std::string_view text,
+  std::string text_to_ipa(std::string_view text,
                                         std::vector<G2pWordLog>* per_word_log = nullptr);
 
  private:

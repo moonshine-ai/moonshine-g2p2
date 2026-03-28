@@ -1,5 +1,6 @@
 // Unified G2P CLI: rule-based dialects (e.g. Spanish) or ONNX bundles under models/<dialect>/.
 #include "moonshine-g2p/g2p-word-log.h"
+#include "moonshine-g2p/lang-specific/spanish.h"
 #include "moonshine-g2p/moonshine-g2p.h"
 
 #include <cstdlib>
@@ -10,13 +11,7 @@
 
 using moonshine_g2p::MoonshineG2P;
 using moonshine_g2p::MoonshineG2POptions;
-using moonshine_g2p::dialect_resolves_to_brazilian_portuguese_rules;
-using moonshine_g2p::dialect_resolves_to_dutch_rules;
-using moonshine_g2p::dialect_resolves_to_french_rules;
-using moonshine_g2p::dialect_resolves_to_german_rules;
-using moonshine_g2p::dialect_resolves_to_portugal_rules;
-using moonshine_g2p::dialect_resolves_to_russian_rules;
-using moonshine_g2p::dialect_resolves_to_spanish_rules;
+using moonshine_g2p::dialect_uses_rule_based_g2p;
 using moonshine_g2p::format_g2p_word_log_line;
 using moonshine_g2p::spanish_dialect_cli_ids;
 
@@ -163,14 +158,7 @@ int main(int argc, char **argv) {
       }
       phrase += text_parts[t];
     }
-  } else if (force_stdin ||
-             dialect_resolves_to_spanish_rules(dialect_str, opt.spanish_narrow_obstruents) ||
-             dialect_resolves_to_german_rules(dialect_str) ||
-             dialect_resolves_to_french_rules(dialect_str) ||
-             dialect_resolves_to_dutch_rules(dialect_str) ||
-             dialect_resolves_to_russian_rules(dialect_str) ||
-             dialect_resolves_to_brazilian_portuguese_rules(dialect_str) ||
-             dialect_resolves_to_portugal_rules(dialect_str)) {
+  } else if (force_stdin || dialect_uses_rule_based_g2p(dialect_str, opt)) {
     phrase = read_all_stdin();
   } else {
     phrase = "Hello world!";

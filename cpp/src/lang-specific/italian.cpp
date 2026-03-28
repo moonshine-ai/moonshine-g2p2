@@ -1241,13 +1241,11 @@ std::string ItalianRuleG2p::text_to_ipa_no_expand(const std::string& text,
   return collapsed;
 }
 
-std::string ItalianRuleG2p::text_to_ipa(const std::string& text,
-                                        std::vector<G2pWordLog>* per_word_log) const {
-  std::string work = text;
+std::string ItalianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
   if (options_.expand_cardinal_digits) {
-    work = expand_digit_tokens_in_text(std::move(work));
+    text = expand_digit_tokens_in_text(std::move(text));
   }
-  return text_to_ipa_no_expand(work, per_word_log);
+  return text_to_ipa_no_expand(text, per_word_log);
 }
 
 bool dialect_resolves_to_italian_rules(std::string_view dialect_id) {
@@ -1259,6 +1257,10 @@ bool dialect_resolves_to_italian_rules(std::string_view dialect_id) {
     c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   }
   return s == "it" || s == "it-it" || s == "italian";
+}
+
+std::vector<std::string> ItalianRuleG2p::dialect_ids() {
+  return {"it", "it-IT", "it_it", "italian"};
 }
 
 std::filesystem::path resolve_italian_dict_path(const std::filesystem::path& model_root) {

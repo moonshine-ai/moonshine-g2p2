@@ -19,7 +19,7 @@ enum class G2pWordPath {
   kUnknownNoOovModel,  // not in dict and no OOV model loaded
 };
 
-[[nodiscard]] const char* g2p_word_path_tag(G2pWordPath path);
+const char* g2p_word_path_tag(G2pWordPath path);
 
 struct G2pWordLog {
   std::string surface_token;
@@ -30,7 +30,7 @@ struct G2pWordLog {
 };
 
 /// One-line human-readable summary (for stderr logging).
-[[nodiscard]] std::string format_g2p_word_log_line(const G2pWordLog& entry);
+std::string format_g2p_word_log_line(const G2pWordLog& entry);
 
 }  // namespace moonshine_g2p
 

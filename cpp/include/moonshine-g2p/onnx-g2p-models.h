@@ -15,7 +15,7 @@ class OnnxOovG2p {
  public:
   OnnxOovG2p(Ort::Env& env, const std::filesystem::path& model_onnx, bool use_cuda);
 
-  [[nodiscard]] std::vector<std::string> predict_phonemes(const std::string& word);
+  std::vector<std::string> predict_phonemes(const std::string& word);
 
  private:
   OovOnnxTables tab_;
@@ -27,7 +27,7 @@ class OnnxHeteronymG2p {
  public:
   OnnxHeteronymG2p(Ort::Env& env, const std::filesystem::path& model_onnx, bool use_cuda);
 
-  [[nodiscard]] std::string disambiguate_ipa(const std::string& full_text,
+  std::string disambiguate_ipa(const std::string& full_text,
                                              int span_s,
                                              int span_e,
                                              const std::string& lookup_key,

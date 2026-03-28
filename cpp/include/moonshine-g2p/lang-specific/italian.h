@@ -1,6 +1,8 @@
 #ifndef MOONSHINE_G2P_LANG_SPECIFIC_ITALIAN_H
 #define MOONSHINE_G2P_LANG_SPECIFIC_ITALIAN_H
 
+#include "moonshine-g2p/rule-based-g2p.h"
+
 #include <filesystem>
 #include <string>
 #include <unordered_map>
@@ -11,7 +13,7 @@ namespace moonshine_g2p {
 struct G2pWordLog;
 
 /// Rule- and lexicon-based Italian G2P, mirroring ``italian_rule_g2p.py`` / ``italian_numbers.py``.
-class ItalianRuleG2p {
+class ItalianRuleG2p : public RuleBasedG2p {
  public:
   struct Options {
     bool with_stress = true;
@@ -24,29 +26,31 @@ class ItalianRuleG2p {
   explicit ItalianRuleG2p(std::filesystem::path dict_tsv);
   explicit ItalianRuleG2p(std::filesystem::path dict_tsv, Options options);
 
-  [[nodiscard]] const std::string& dialect_id() const { return dialect_id_; }
+  static std::vector<std::string> dialect_ids();
 
-  [[nodiscard]] std::string word_to_ipa(const std::string& word) const;
+  const std::string& dialect_id() const { return dialect_id_; }
 
-  [[nodiscard]] std::string text_to_ipa(const std::string& text,
-                                         std::vector<G2pWordLog>* per_word_log = nullptr) const;
+  std::string word_to_ipa(const std::string& word) const;
+
+  std::string text_to_ipa(std::string text,
+                          std::vector<G2pWordLog>* per_word_log = nullptr) override;
 
  private:
   std::string dialect_id_{"it-IT"};
   Options options_;
   std::unordered_map<std::string, std::string> lexicon_;
 
-  [[nodiscard]] std::string lookup_or_rules(const std::string& raw_word) const;
-  [[nodiscard]] std::string finalize_ipa(std::string ipa, bool from_lexicon) const;
-  [[nodiscard]] std::string text_to_ipa_no_expand(const std::string& text,
-                                                    std::vector<G2pWordLog>* per_word_log) const;
+  std::string lookup_or_rules(const std::string& raw_word) const;
+  std::string finalize_ipa(std::string ipa, bool from_lexicon) const;
+  std::string text_to_ipa_no_expand(const std::string& text,
+                                    std::vector<G2pWordLog>* per_word_log) const;
 };
 
 /// True for ``it``, ``it-IT``, ``it_it``, ``italian`` (case-insensitive).
-[[nodiscard]] bool dialect_resolves_to_italian_rules(std::string_view dialect_id);
+bool dialect_resolves_to_italian_rules(std::string_view dialect_id);
 
 /// Default lexicon: ``<model-root>/../data/it/dict.tsv`` then ``<model-root>/it/dict.tsv``.
-[[nodiscard]] std::filesystem::path resolve_italian_dict_path(const std::filesystem::path& model_root);
+std::filesystem::path resolve_italian_dict_path(const std::filesystem::path& model_root);
 
 }  // namespace moonshine_g2p
 
