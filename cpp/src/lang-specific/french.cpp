@@ -1,7 +1,9 @@
 #include "moonshine_g2p/lang-specific/french.hpp"
+#include "moonshine_g2p/lang-specific/french_compound_map.hpp"
 
 #include "lang-specific/french_internal.hpp"
 #include "moonshine_g2p/g2p_word_log.hpp"
+#include "moonshine_g2p/ipa_symbols.hpp"
 #include "moonshine_g2p/utf8_utils.hpp"
 
 #include <algorithm>
@@ -18,72 +20,10 @@
 namespace moonshine_g2p {
 namespace {
 
-const std::string kPrimaryStressUtf8{"\xCB\x88"};    // U+02C8 ˈ
-const std::string kSecondaryStressUtf8{"\xCB\x8C"};  // U+02CC ˌ
-std::string trim_copy_sv(std::string_view s) {
-  size_t a = 0;
-  size_t b = s.size();
-  while (a < b && std::isspace(static_cast<unsigned char>(s[a])) != 0) {
-    ++a;
-  }
-  while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])) != 0) {
-    --b;
-  }
-  return std::string(s.substr(a, b - a));
-}
-
-bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& out_len) {
-  const size_t n = s.size();
-  if (i >= n) {
-    return false;
-  }
-  const unsigned char c0 = static_cast<unsigned char>(s[i]);
-  if (c0 < 0x80) {
-    out_cp = c0;
-    out_len = 1;
-    return true;
-  }
-  if ((c0 >> 5) == 0x6 && i + 1 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    if ((c1 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
-    out_len = 2;
-    return true;
-  }
-  if ((c0 >> 4) == 0xE && i + 2 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x0Fu) << 12) | ((c1 & 0x3Fu) << 6) | (c2 & 0x3Fu);
-    out_len = 3;
-    return true;
-  }
-  if ((c0 >> 3) == 0x1E && i + 3 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    const unsigned char c3 = static_cast<unsigned char>(s[i + 3]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2 || (c3 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) |
-             ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
-    out_len = 4;
-    return true;
-  }
-  out_cp = c0;
-  out_len = 1;
-  return true;
-}
+using ipa::kPrimaryStressUtf8;
+using ipa::kSecondaryStressUtf8;
+using moonshine_g2p::trim_ascii_ws_copy;
+using moonshine_g2p::utf8_decode_at;
 
 char32_t french_tolower_cp(char32_t c) {
   switch (c) {
@@ -258,8 +198,8 @@ void load_french_lexicon_file(const std::filesystem::path& path,
     if (tab == std::string::npos) {
       continue;
     }
-    std::string surf = trim_copy_sv(line.substr(0, tab));
-    std::string ipa = trim_copy_sv(line.substr(tab + 1));
+    std::string surf = trim_ascii_ws_copy(line.substr(0, tab));
+    std::string ipa = trim_ascii_ws_copy(line.substr(tab + 1));
     const std::string k = normalize_lookup_key_utf8(surf);
     if (k.empty()) {
       continue;
@@ -299,10 +239,10 @@ std::string parse_first_csv_field(std::string_view line) {
       }
       out.push_back(c);
     }
-    return trim_copy_sv(out);
+    return trim_ascii_ws_copy(out);
   }
   const size_t comma = line.find(',');
-  return trim_copy_sv(line.substr(0, comma == std::string::npos ? line.size() : comma));
+  return trim_ascii_ws_copy(line.substr(0, comma == std::string::npos ? line.size() : comma));
 }
 
 void load_french_pos_dir(const std::filesystem::path& dir,
@@ -545,10 +485,7 @@ std::string expand_digit_tokens_in_text(const std::string& text) {
 }
 
 const std::unordered_map<std::string, std::string>& cardinal_compound_ipa_map() {
-  static const std::unordered_map<std::string, std::string> kMap = {
-#include "lang-specific/french_compound_map.inc"
-  };
-  return kMap;
+  return french_compound_map::cardinal_compound_ipa_entries();
 }
 
 const std::unordered_set<std::string>& h_aspire_set() {
@@ -979,7 +916,7 @@ std::pair<std::string, std::string> apply_liaison_pair(std::string ipa_left, con
   if (strength == LiaisonStrength::kNone) {
     return {ipa_left, ipa_right};
   }
-  if (trim_copy_sv(ipa_left).empty()) {
+  if (trim_ascii_ws_copy(ipa_left).empty()) {
     return {ipa_left, ipa_right};
   }
   if (h_aspire_set().count(to_lower_ascii(wright)) != 0u) {
@@ -1043,7 +980,7 @@ size_t count_primary_stress_marks(const std::string& s) {
 }  // namespace
 
 std::string FrenchRuleG2p::ensure_french_nuclear_stress(std::string ipa) {
-  if (ipa.empty() || trim_copy_sv(ipa).empty()) {
+  if (ipa.empty() || trim_ascii_ws_copy(ipa).empty()) {
     return ipa;
   }
   if (ipa.find('-') != std::string::npos) {
@@ -1098,7 +1035,7 @@ std::string FrenchRuleG2p::finalize_word_ipa(std::string ipa, bool from_compound
 }
 
 std::string FrenchRuleG2p::word_to_ipa_impl(const std::string& raw_word, bool expand_digits) const {
-  const std::string wraw = trim_copy_sv(raw_word);
+  const std::string wraw = trim_ascii_ws_copy(raw_word);
   if (wraw.empty()) {
     return "";
   }
@@ -1319,7 +1256,7 @@ std::string FrenchRuleG2p::text_to_ipa_impl(const std::string& text, bool expand
 }
 
 bool dialect_resolves_to_french_rules(std::string_view dialect_id) {
-  std::string s = trim_copy_sv(dialect_id);
+  std::string s = trim_ascii_ws_copy(dialect_id);
   for (char& c : s) {
     if (c == '_') {
       c = '-';

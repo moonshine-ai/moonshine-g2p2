@@ -2,15 +2,15 @@
 #include <doctest/doctest.h>
 
 #include "moonshine_g2p/lang-specific/italian.hpp"
+#include "rule_g2p_test_support.hpp"
 
 #include <chrono>
-#include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <sstream>
 #include <string>
 #include <vector>
+
+namespace r = moonshine_g2p::rule_g2p_test;
 
 namespace {
 
@@ -23,36 +23,8 @@ std::filesystem::path make_temp_tsv(const char* contents) {
   return p;
 }
 
-std::filesystem::path repo_root_from_this_file() {
-  return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
-}
-
-/// Capture stdout from a shell command (trim trailing newline only on last line aggregation).
-std::string shell_capture(const std::string& cmd) {
-  FILE* pipe = popen(cmd.c_str(), "r");
-  if (pipe == nullptr) {
-    return {};
-  }
-  std::string out;
-  char buf[8192];
-  while (fgets(buf, sizeof(buf), pipe) != nullptr) {
-    out += buf;
-  }
-  (void)pclose(pipe);
-  while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) {
-    out.pop_back();
-  }
-  return out;
-}
-
-/// Run ``italian_g2p_ref.py`` on a UTF-8 file containing one logical line (no trailing newline required).
 std::string python_ipa_from_file(const std::filesystem::path& utf8_file) {
-  const std::filesystem::path repo = repo_root_from_this_file();
-  const std::filesystem::path script = repo / "cpp" / "tests" / "italian_g2p_ref.py";
-  std::ostringstream cmd;
-  cmd << "env PYTHONPATH=" << std::quoted(repo.string()) << " python3 " << std::quoted(script.string()) << " "
-      << std::quoted(utf8_file.string());
-  return shell_capture(cmd.str());
+  return r::python_ref_from_utf8_file(r::repo_root_from_tests_cpp(__FILE__), "italian_g2p_ref.py", utf8_file);
 }
 
 std::string python_ipa_one_line(const std::string& line) {
@@ -70,30 +42,11 @@ std::string python_ipa_one_line(const std::string& line) {
 }
 
 std::vector<std::string> python_ipa_first_lines(const std::filesystem::path& text_file, int n) {
-  const std::filesystem::path repo = repo_root_from_this_file();
-  const std::filesystem::path script = repo / "cpp" / "tests" / "italian_g2p_ref.py";
-  std::ostringstream cmd;
-  cmd << "env PYTHONPATH=" << std::quoted(repo.string()) << " python3 " << std::quoted(script.string()) << " "
-      << std::quoted(text_file.string()) << " --first-lines " << n;
-  const std::string block = shell_capture(cmd.str());
-  std::vector<std::string> lines;
-  std::istringstream iss(block);
-  std::string L;
-  while (std::getline(iss, L)) {
-    if (!L.empty() && L.back() == '\r') {
-      L.pop_back();
-    }
-    lines.push_back(std::move(L));
-  }
-  return lines;
+  return r::python_ref_first_lines(r::repo_root_from_tests_cpp(__FILE__), "italian_g2p_ref.py", text_file, n);
 }
 
 bool python_italian_import_ok() {
-  const std::filesystem::path repo = repo_root_from_this_file();
-  std::ostringstream cmd;
-  cmd << "env PYTHONPATH=" << std::quoted(repo.string())
-      << " python3 -c \"from italian_rule_g2p import text_to_ipa\"";
-  return system(cmd.str().c_str()) == 0;
+  return r::python_import_ok(r::repo_root_from_tests_cpp(__FILE__), "from italian_rule_g2p import text_to_ipa");
 }
 
 }  // namespace
@@ -126,7 +79,7 @@ TEST_CASE("italian: lexicon stress not shifted by vocoder") {
 }
 
 TEST_CASE("italian: c'è matches Python when available") {
-  const std::filesystem::path dict = repo_root_from_this_file() / "data" / "it" / "dict.tsv";
+  const std::filesystem::path dict = r::repo_root_from_tests_cpp(__FILE__) / "data" / "it" / "dict.tsv";
   if (!std::filesystem::is_regular_file(dict) || !python_italian_import_ok()) {
     return;
   }
@@ -139,23 +92,15 @@ TEST_CASE("italian: c'è matches Python when available") {
 
 TEST_CASE("italian: wiki-text first 100 lines match Python when data and python3 exist") {
   constexpr std::size_t kWikiParityLines = 100;
-  const std::filesystem::path dict = repo_root_from_this_file() / "data" / "it" / "dict.tsv";
-  const std::filesystem::path wiki = repo_root_from_this_file() / "data" / "it" / "wiki-text.txt";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const std::filesystem::path dict = repo / "data" / "it" / "dict.tsv";
+  const std::filesystem::path wiki = repo / "data" / "it" / "wiki-text.txt";
   if (!std::filesystem::is_regular_file(dict) || !std::filesystem::is_regular_file(wiki) ||
       !python_italian_import_ok()) {
     return;
   }
   moonshine_g2p::ItalianRuleG2p g(dict);
-  std::ifstream in(wiki);
-  REQUIRE(in);
-  std::vector<std::string> src;
-  std::string line;
-  while (src.size() < kWikiParityLines && std::getline(in, line)) {
-    if (!line.empty() && line.back() == '\r') {
-      line.pop_back();
-    }
-    src.push_back(std::move(line));
-  }
+  const auto src = r::read_text_first_lines(wiki, kWikiParityLines);
   const std::vector<std::string> py = python_ipa_first_lines(wiki, static_cast<int>(src.size()));
   REQUIRE(py.size() == src.size());
   for (size_t i = 0; i < src.size(); ++i) {

@@ -2,15 +2,16 @@
 #include <doctest/doctest.h>
 
 #include "moonshine_g2p/lang-specific/french.hpp"
+#include "rule_g2p_test_support.hpp"
 
 #include <filesystem>
+#include <fstream>
 #include <string>
+#include <vector>
+
+namespace r = moonshine_g2p::rule_g2p_test;
 
 namespace {
-
-std::filesystem::path repo_root() {
-  return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path();
-}
 
 std::string strip_stress(std::string s) {
   static const std::string kPri{"\xCB\x88"};
@@ -33,7 +34,15 @@ std::string strip_stress(std::string s) {
 }
 
 bool french_dict_present() {
-  return std::filesystem::is_regular_file(repo_root() / "data" / "fr" / "dict.tsv");
+  return std::filesystem::is_regular_file(r::repo_root_from_tests_cpp(__FILE__) / "data" / "fr" / "dict.tsv");
+}
+
+std::vector<std::string> python_ipa_first_lines(const std::filesystem::path& text_file, int n) {
+  return r::python_ref_first_lines(r::repo_root_from_tests_cpp(__FILE__), "french_g2p_ref.py", text_file, n);
+}
+
+bool python_french_import_ok() {
+  return r::python_import_ok(r::repo_root_from_tests_cpp(__FILE__), "from french_g2p import text_to_ipa");
 }
 
 }  // namespace
@@ -54,7 +63,8 @@ TEST_CASE("french: ensure_french_nuclear_stress") {
 }
 
 TEST_CASE("french: liaison les amis" * doctest::skip(!french_dict_present())) {
-  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const auto dict = repo / "data" / "fr" / "dict.tsv";
   const auto csv = dict.parent_path();
   moonshine_g2p::FrenchRuleG2p g(dict, csv);
   const std::string out = g.text_to_ipa("les amis");
@@ -64,7 +74,8 @@ TEST_CASE("french: liaison les amis" * doctest::skip(!french_dict_present())) {
 }
 
 TEST_CASE("french: En 1891 cardinal expansion" * doctest::skip(!french_dict_present())) {
-  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const auto dict = repo / "data" / "fr" / "dict.tsv";
   const auto csv = dict.parent_path();
   moonshine_g2p::FrenchRuleG2p g(dict, csv);
   const std::string out = g.text_to_ipa("En 1891");
@@ -74,7 +85,8 @@ TEST_CASE("french: En 1891 cardinal expansion" * doctest::skip(!french_dict_pres
 }
 
 TEST_CASE("french: punctuation keeps space before next word" * doctest::skip(!french_dict_present())) {
-  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const auto dict = repo / "data" / "fr" / "dict.tsv";
   const auto csv = dict.parent_path();
   moonshine_g2p::FrenchRuleG2p g(dict, csv);
   CHECK(g.text_to_ipa("Bonjour! Salut").find("! ") != std::string::npos);
@@ -83,7 +95,8 @@ TEST_CASE("french: punctuation keeps space before next word" * doctest::skip(!fr
 
 TEST_CASE("french: hyphenated OOV allez-vous matches Python (UTF-8 trim + stress)" *
           doctest::skip(!french_dict_present())) {
-  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const auto dict = repo / "data" / "fr" / "dict.tsv";
   const auto csv = dict.parent_path();
   moonshine_g2p::FrenchRuleG2p g(dict, csv);
   CHECK(g.text_to_ipa("comment allez-vous") == "kɔmˈɑ̃ allˈə-vˈu");
@@ -91,8 +104,29 @@ TEST_CASE("french: hyphenated OOV allez-vous matches Python (UTF-8 trim + stress
 
 TEST_CASE("french: uppercase accented letters in words (Saint-Étienne)" *
           doctest::skip(!french_dict_present())) {
-  const auto dict = repo_root() / "data" / "fr" / "dict.tsv";
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const auto dict = repo / "data" / "fr" / "dict.tsv";
   const auto csv = dict.parent_path();
   moonshine_g2p::FrenchRuleG2p g(dict, csv);
   CHECK(g.text_to_ipa("Saint-\xC3\x89tienne") == "sˈɛ̃-etjˈɛ̃n");
+}
+
+TEST_CASE("french: wiki-text first 100 lines match Python when data and python3 exist") {
+  constexpr std::size_t kWikiParityLines = 100;
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const std::filesystem::path dict = repo / "data" / "fr" / "dict.tsv";
+  const std::filesystem::path wiki = repo / "data" / "fr" / "wiki-text.txt";
+  if (!std::filesystem::is_regular_file(dict) || !std::filesystem::is_regular_file(wiki) ||
+      !python_french_import_ok()) {
+    return;
+  }
+  const auto csv = dict.parent_path();
+  moonshine_g2p::FrenchRuleG2p g(dict, csv);
+  const auto src = r::read_text_first_lines(wiki, kWikiParityLines);
+  const std::vector<std::string> py = python_ipa_first_lines(wiki, static_cast<int>(src.size()));
+  REQUIRE(py.size() == src.size());
+  for (size_t i = 0; i < src.size(); ++i) {
+    INFO("wiki line " << (i + 1));
+    CHECK(g.text_to_ipa(src[i]) == py[i]);
+  }
 }

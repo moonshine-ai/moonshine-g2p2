@@ -1,5 +1,8 @@
 #include "lang-specific/french_internal.hpp"
 
+#include "moonshine_g2p/ipa_symbols.hpp"
+#include "moonshine_g2p/utf8_utils.hpp"
+
 #include <cctype>
 #include <string>
 #include <unordered_map>
@@ -8,60 +11,9 @@
 namespace moonshine_g2p::french_detail {
 namespace {
 
-const std::string kPrimaryStressUtf8{"\xCB\x88"};  // U+02C8 ˈ
+const std::string& kPrimaryStressUtf8 = moonshine_g2p::ipa::kPrimaryStressUtf8;
 
-bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& out_len) {
-  const size_t n = s.size();
-  if (i >= n) {
-    return false;
-  }
-  const unsigned char c0 = static_cast<unsigned char>(s[i]);
-  if (c0 < 0x80) {
-    out_cp = c0;
-    out_len = 1;
-    return true;
-  }
-  if ((c0 >> 5) == 0x6 && i + 1 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    if ((c1 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
-    out_len = 2;
-    return true;
-  }
-  if ((c0 >> 4) == 0xE && i + 2 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x0Fu) << 12) | ((c1 & 0x3Fu) << 6) | (c2 & 0x3Fu);
-    out_len = 3;
-    return true;
-  }
-  if ((c0 >> 3) == 0x1E && i + 3 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    const unsigned char c3 = static_cast<unsigned char>(s[i + 3]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2 || (c3 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) |
-             ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
-    out_len = 4;
-    return true;
-  }
-  out_cp = c0;
-  out_len = 1;
-  return true;
-}
+using moonshine_g2p::utf8_decode_at;
 
 char32_t french_tolower_cp(char32_t c) {
   switch (c) {

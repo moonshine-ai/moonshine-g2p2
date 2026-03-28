@@ -1,23 +1,118 @@
-// Included from portuguese.cpp (inside anonymous namespace). Portuguese OOV rules — mirrors
-// portuguese_rule_g2p.py.
+#include "moonshine_g2p/lang-specific/portuguese_rules.hpp"
 
-std::u32string utf8_to_u32_pt(const std::string& s) {
-  std::u32string o;
+#include "moonshine_g2p/ipa_symbols.hpp"
+#include "moonshine_g2p/utf8_utils.hpp"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+namespace moonshine_g2p::portuguese_rules {
+
+namespace {
+const std::string& kPri = ipa::kPrimaryStressUtf8;
+const std::string& kSec = ipa::kSecondaryStressUtf8;
+}  // namespace
+
+char32_t pt_tolower(char32_t c) {
+  switch (c) {
+  case U'À':
+    return U'à';
+  case U'Á':
+    return U'á';
+  case U'Â':
+    return U'â';
+  case U'Ã':
+    return U'ã';
+  case U'Ç':
+    return U'ç';
+  case U'É':
+    return U'é';
+  case U'Ê':
+    return U'ê';
+  case U'Í':
+    return U'í';
+  case U'Ó':
+    return U'ó';
+  case U'Ô':
+    return U'ô';
+  case U'Õ':
+    return U'õ';
+  case U'Ú':
+    return U'ú';
+  case U'Ü':
+    return U'ü';
+  case U'Ý':
+    return U'ý';
+  default:
+    break;
+  }
+  if (c >= U'A' && c <= U'Z') {
+    return c + 32;
+  }
+  if ((c >= U'\u00C0' && c <= U'\u00D6') || (c >= U'\u00D8' && c <= U'\u00DE')) {
+    return c + 32;
+  }
+  return c;
+}
+
+namespace {
+
+bool is_pt_key_cp(char32_t c) {
+  c = pt_tolower(c);
+  if (c == U'\u2019') {
+    c = U'\'';
+  }
+  if (c >= U'a' && c <= U'z') {
+    return true;
+  }
+  if (c == U'\'' || c == U'-') {
+    return true;
+  }
+  return c == U'à' || c == U'á' || c == U'â' || c == U'ã' || c == U'ç' || c == U'é' || c == U'ê' ||
+         c == U'í' || c == U'ó' || c == U'ô' || c == U'õ' || c == U'ú' || c == U'ü' || c == U'ý';
+}
+
+std::string normalize_lookup_key_utf8_impl(const std::string& word) {
+  std::string out;
   size_t i = 0;
-  while (i < s.size()) {
+  while (i < word.size()) {
     char32_t cp = 0;
     size_t adv = 0;
-    utf8_decode_at(s, i, cp, adv);
-    o.push_back(cp);
+    moonshine_g2p::utf8_decode_at(word, i, cp, adv);
+    if (cp == U'\u2019') {
+      cp = U'\'';
+    }
+    const char32_t cl = pt_tolower(cp);
+    if (is_pt_key_cp(cl)) {
+      moonshine_g2p::utf8_append_codepoint(out, cl);
+    }
     i += adv;
   }
-  return o;
+  return out;
+}
+
+}  // namespace
+
+std::string normalize_lookup_key_utf8(const std::string& word) {
+  return normalize_lookup_key_utf8_impl(word);
+}
+
+std::u32string utf8_to_u32_pt(const std::string& s) {
+  return moonshine_g2p::utf8_str_to_u32(s);
 }
 
 std::string u32_to_utf8_pt(const std::u32string& s) {
   std::string o;
   for (char32_t c : s) {
-    utf8_append_codepoint(o, c);
+    moonshine_g2p::utf8_append_codepoint(o, c);
   }
   return o;
 }
@@ -35,13 +130,13 @@ bool is_allowed_pt_grapheme(char32_t c) {
 }
 
 std::u32string filter_pt_word_graphemes_utf8(const std::string& word) {
-  const std::string t = trim_sv(word);
+  const std::string t = moonshine_g2p::trim_ascii_ws_copy(word);
   std::u32string o;
   size_t i = 0;
   while (i < t.size()) {
     char32_t cp = 0;
     size_t adv = 0;
-    utf8_decode_at(t, i, cp, adv);
+    moonshine_g2p::utf8_decode_at(t, i, cp, adv);
     if (is_allowed_pt_grapheme(cp)) {
       o.push_back(pt_tolower(cp));
     }
@@ -313,8 +408,8 @@ size_t default_stressed_syllable_index_u32(const std::vector<std::u32string>& sy
 }
 
 std::string strip_stress_chars(std::string s) {
-  erase_utf8_substr(s, kPri);
-  erase_utf8_substr(s, kSec);
+  moonshine_g2p::erase_utf8_substr(s, kPri);
+  moonshine_g2p::erase_utf8_substr(s, kSec);
   return s;
 }
 
@@ -328,11 +423,11 @@ std::string insert_primary_stress_before_vowel_utf8(std::string ipa) {
         ch == U'\u00E6' || ch == U'\u0254') {
       std::string pre;
       for (size_t j = 0; j < i; ++j) {
-        utf8_append_codepoint(pre, u[j]);
+        moonshine_g2p::utf8_append_codepoint(pre, u[j]);
       }
       std::string post;
       for (size_t j = i; j < u.size(); ++j) {
-        utf8_append_codepoint(post, u[j]);
+        moonshine_g2p::utf8_append_codepoint(post, u[j]);
       }
       return pre + kPri + post;
     }
@@ -867,11 +962,16 @@ static const std::unordered_map<std::string, std::string> kXExc = {
     {"\x66\xc3\xa9\x6e\x69\x78", "\xcb\x88\x66\xc9\x9b\x6e\x69\x6b\x73"},
 };
 
-static const std::unordered_map<std::string, std::string> kScStraddle = {
+const std::unordered_map<std::string, std::string>& sc_straddle_map_impl() {
+  static const std::unordered_map<std::string, std::string> kScStraddle = {
+
     {"escola", "\xc9\xaa\x73\x6b\xcb\x88\xc9\x94\x6c\xc9\x90"},
     {"piscina", "\x70\x69\xca\x83\xcb\x88\x6b\x69\x6e\xc9\x90"},
     {"descer", "\x64\xc9\xaa\xca\x83\xcb\x88\x73\x65\xc9\xbe"},
-};
+  };
+  return kScStraddle;
+}
+
 
 static const std::unordered_set<std::string> kPtFinalSExclude = {
     "\x61\x6e\xc3\xad\x73",     "\x62\xc3\xb4\x6e\x75\x73", "\x63\x61\x69\x73",         "\x63\x61\x6f\x73",
@@ -930,7 +1030,9 @@ std::string pt_pt_apply_rules_final_s_to_esh(std::string ipa, const std::string&
   return ipa;
 }
 
-static const std::unordered_map<std::string, std::string> kFwBr = {
+const std::unordered_map<std::string, std::string>& fw_br_map_impl() {
+  static const std::unordered_map<std::string, std::string> kFwBr = {
+
     {"a", "\xc9\x90"},      {"o", "u"},       {"os", "\xca\x8a\x73"},   {"as", "\xc9\x90\x73"}, {"e", "i"},
     {"ou", "ow"},           {"em", "\xc9\x90\xcc\x83\x6a\xcc\x83"}, {"no", "n\xca\x8a"},     {"na", "n\xc9\x90"},
     {"nos", "n\xca\x8a\x73"}, {"nas", "n\xc9\x90\x73"}, {"de", "d\xca\x92\xc9\xaa"}, {"do", "d\xca\x8a"},
@@ -942,9 +1044,14 @@ static const std::unordered_map<std::string, std::string> kFwBr = {
     {"para", "\xcb\x88\x70\x61\xc9\xbe\xc9\x90"}, {"que", "k\x69"}, {"n\xc3\xa3o", "\xcb\x88\x6e\xc9\x90\xcc\x83\x77\xcc\x83"},
     {"um", "\xc5\xa9"},     {"uma", "\xcb\x88\x75\x6d\xc9\x90"}, {"uns", "\xc5\xa9\x73"}, {"umas", "\xcb\x88\x75\x6d\xc9\x90\x73"},
     {"ao", "aw"},           {"aos", "aw\xca\x83"}, {"\xc3\xa0", "a"}, {"\xc3\xa0s", "\xc9\x90\xca\x83"},
-};
+  };
+  return kFwBr;
+}
 
-static const std::unordered_map<std::string, std::string> kFwPt = {
+
+const std::unordered_map<std::string, std::string>& fw_pt_map_impl() {
+  static const std::unordered_map<std::string, std::string> kFwPt = {
+
     {"a", "\xc9\x90"}, {"o", "u"}, {"os", "u\xca\x83"}, {"as", "\xc9\x90\xca\x83"}, {"e", "\xc9\xa8"},
     {"ou", "ow"},     {"em", "\xc9\x90\xcc\x83\x6a\xcc\x83"}, {"no", "nu"}, {"na", "n\xc9\x90"},
     {"nos", "nu\xca\x83"}, {"nas", "n\xc9\x90\xca\x83"}, {"de", "d\xc9\xa8"}, {"do", "du"},
@@ -956,7 +1063,10 @@ static const std::unordered_map<std::string, std::string> kFwPt = {
     {"para", "\xcb\x88\x70\xc9\x90\xc9\xbe\xc9\x90"}, {"que", "k\xc9\xa8"}, {"n\xc3\xa3o", "\xcb\x88\x6e\xc9\x90\xcc\x83\x77\xcc\x83"},
     {"um", "\xc5\xa9"}, {"uma", "\xcb\x88\x75\x6d\xc9\x90"}, {"uns", "\xc5\xa9\xca\x83"}, {"umas", "\xcb\x88\x75\x6d\xc9\x90\xca\x83"},
     {"ao", "aw"}, {"aos", "aw\xca\x83"}, {"\xc3\xa0", "a"}, {"\xc3\xa0s", "a\xca\x83"},
-};
+  };
+  return kFwPt;
+}
+
 
 std::string rules_word_to_ipa_utf8(const std::string& raw, bool is_pt_pt, bool with_stress) {
   const std::u32string wl = filter_pt_word_graphemes_utf8(raw);
@@ -971,8 +1081,8 @@ std::string rules_word_to_ipa_utf8(const std::string& raw, bool is_pt_pt, bool w
     }
     return xi->second;
   }
-  const auto si = kScStraddle.find(wkey);
-  if (si != kScStraddle.end()) {
+  const auto si = sc_straddle_map_impl().find(wkey);
+  if (si != sc_straddle_map_impl().end()) {
     if (!with_stress) {
       return strip_stress_chars(si->second);
     }
@@ -1005,3 +1115,17 @@ std::string rules_word_to_ipa_utf8(const std::string& raw, bool is_pt_pt, bool w
   }
   return rules_word_to_ipa_single_u32(wl, is_pt_pt, with_stress);
 }
+
+const std::unordered_map<std::string, std::string>& fw_pt() {
+  return fw_pt_map_impl();
+}
+
+const std::unordered_map<std::string, std::string>& fw_br() {
+  return fw_br_map_impl();
+}
+
+const std::unordered_map<std::string, std::string>& sc_straddle() {
+  return sc_straddle_map_impl();
+}
+
+}  // namespace moonshine_g2p::portuguese_rules

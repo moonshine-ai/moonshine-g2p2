@@ -1,6 +1,7 @@
 #include "moonshine_g2p/lang-specific/dutch.hpp"
 
 #include "moonshine_g2p/g2p_word_log.hpp"
+#include "moonshine_g2p/ipa_symbols.hpp"
 #include "moonshine_g2p/utf8_utils.hpp"
 
 #include <algorithm>
@@ -19,73 +20,11 @@
 namespace moonshine_g2p {
 namespace {
 
-const std::string kPrimaryStressUtf8{"\xCB\x88"};     // U+02C8 ˈ
-const std::string kSecondaryStressUtf8{"\xCB\x8C"};   // U+02CC ˌ
-
-std::string trim_copy_sv(std::string_view s) {
-  size_t a = 0;
-  size_t b = s.size();
-  while (a < b && std::isspace(static_cast<unsigned char>(s[a])) != 0) {
-    ++a;
-  }
-  while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])) != 0) {
-    --b;
-  }
-  return std::string(s.substr(a, b - a));
-}
-
-bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& out_len) {
-  const size_t n = s.size();
-  if (i >= n) {
-    return false;
-  }
-  const unsigned char c0 = static_cast<unsigned char>(s[i]);
-  if (c0 < 0x80) {
-    out_cp = c0;
-    out_len = 1;
-    return true;
-  }
-  if ((c0 >> 5) == 0x6 && i + 1 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    if ((c1 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
-    out_len = 2;
-    return true;
-  }
-  if ((c0 >> 4) == 0xE && i + 2 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x0Fu) << 12) | ((c1 & 0x3Fu) << 6) | (c2 & 0x3Fu);
-    out_len = 3;
-    return true;
-  }
-  if ((c0 >> 3) == 0x1E && i + 3 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    const unsigned char c3 = static_cast<unsigned char>(s[i + 3]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2 || (c3 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) |
-             ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
-    out_len = 4;
-    return true;
-  }
-  out_cp = c0;
-  out_len = 1;
-  return true;
-}
+using ipa::kPrimaryStressUtf8;
+using ipa::kSecondaryStressUtf8;
+using moonshine_g2p::erase_utf8_substr;
+using moonshine_g2p::trim_ascii_ws_copy;
+using moonshine_g2p::utf8_decode_at;
 
 char32_t dutch_unicode_tolower_cp(char32_t c) {
   switch (c) {
@@ -260,16 +199,6 @@ std::u32string normalize_grapheme_key_u32(const std::string& word) {
     i += adv;
   }
   return out;
-}
-
-void erase_utf8_substr(std::string& s, const std::string& sub) {
-  for (;;) {
-    const size_t p = s.find(sub);
-    if (p == std::string::npos) {
-      break;
-    }
-    s.erase(p, sub.size());
-  }
 }
 
 static const char* kDigitWord[] = {"nul",  "een",  "twee", "drie", "vier",
@@ -699,8 +628,8 @@ void load_dutch_lexicon_file(const std::filesystem::path& path,
     if (tab == std::string::npos) {
       continue;
     }
-    std::string surf = trim_copy_sv(std::string_view(line).substr(0, tab));
-    std::string ipa = trim_copy_sv(std::string_view(line).substr(tab + 1));
+    std::string surf = trim_ascii_ws_copy(std::string_view(line).substr(0, tab));
+    std::string ipa = trim_ascii_ws_copy(std::string_view(line).substr(tab + 1));
     if (surf.empty()) {
       continue;
     }
@@ -1492,7 +1421,7 @@ std::filesystem::path resolve_dutch_dict_path(const std::filesystem::path& model
 }
 
 bool dialect_resolves_to_dutch_rules(std::string_view dialect_id) {
-  std::string s = trim_copy_sv(dialect_id);
+  std::string s = trim_ascii_ws_copy(dialect_id);
   for (char& c : s) {
     if (c == '_') {
       c = '-';
@@ -1621,7 +1550,7 @@ std::string DutchRuleG2p::lookup_or_rules(const std::string& raw_word) const {
 }
 
 std::string DutchRuleG2p::word_to_ipa(const std::string& word) const {
-  const std::string wraw = trim_copy_sv(word);
+  const std::string wraw = trim_ascii_ws_copy(word);
   if (wraw.empty()) {
     return "";
   }

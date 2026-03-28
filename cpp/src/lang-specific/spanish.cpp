@@ -1,5 +1,6 @@
 #include "moonshine_g2p/g2p_word_log.hpp"
 #include "moonshine_g2p/lang-specific/spanish.hpp"
+#include "moonshine_g2p/lang-specific/spanish_unicode.hpp"
 #include "moonshine_g2p/utf8_utils.hpp"
 
 #include <algorithm>
@@ -14,160 +15,8 @@
 namespace moonshine_g2p {
 namespace {
 
-#include "lang-specific/spanish_unicode_strip.inc"
-#include "lang-specific/spanish_unicode_lower.inc"
-#include "lang-specific/spanish_unicode_word_bitmap.inc"
-#include "lang-specific/spanish_unicode_space_bitmap.inc"
-
-const char *lookup_sorted_pair(const std::pair<char32_t, const char *> *table, size_t n,
-                               char32_t key) {
-  const auto *first = table;
-  const auto *last = table + n;
-  const auto *it =
-      std::lower_bound(first, last, key, [](const std::pair<char32_t, const char *> &e, char32_t k) {
-        return e.first < k;
-      });
-  if (it != last && it->first == key) {
-    return it->second;
-  }
-  return nullptr;
-}
-
-bool unicode_bitmap_get(const uint32_t *bitmap, uint32_t nwords, char32_t cp) {
-  if (cp >= 0x110000) {
-    return false;
-  }
-  const uint32_t wi = static_cast<uint32_t>(cp) / 32u;
-  if (wi >= nwords) {
-    return false;
-  }
-  return (bitmap[wi] & (1u << (static_cast<uint32_t>(cp) % 32u))) != 0u;
-}
-
-bool unicode_is_word_char(char32_t cp) {
-  return unicode_bitmap_get(k_unicode_word_bitmap, k_unicode_word_bitmap_words, cp);
-}
-
-bool unicode_is_space_char(char32_t cp) {
-  return unicode_bitmap_get(k_unicode_space_bitmap, k_unicode_space_bitmap_words, cp);
-}
-
-bool utf8_decode_at(const std::string &s, size_t i, char32_t &out_cp, size_t &out_len) {
-  const size_t n = s.size();
-  if (i >= n) {
-    return false;
-  }
-  const unsigned char c0 = static_cast<unsigned char>(s[i]);
-  if (c0 < 0x80) {
-    out_cp = c0;
-    out_len = 1;
-    return true;
-  }
-  if ((c0 >> 5) == 0x6 && i + 1 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    if ((c1 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
-    out_len = 2;
-    return true;
-  }
-  if ((c0 >> 4) == 0xE && i + 2 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x0Fu) << 12) | ((c1 & 0x3Fu) << 6) | (c2 & 0x3Fu);
-    out_len = 3;
-    return true;
-  }
-  if ((c0 >> 3) == 0x1E && i + 3 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    const unsigned char c3 = static_cast<unsigned char>(s[i + 3]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2 || (c3 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x07u) << 18) | ((c1 & 0x3Fu) << 12) |
-             ((c2 & 0x3Fu) << 6) | (c3 & 0x3Fu);
-    out_len = 4;
-    return true;
-  }
-  out_cp = c0;
-  out_len = 1;
-  return true;
-}
-
-std::string utf32_to_utf8(const std::u32string &u) {
-  std::string out;
-  out.reserve(u.size() * 3);
-  for (char32_t cp : u) {
-    utf8_append_codepoint(out, cp);
-  }
-  return out;
-}
-
-std::u32string utf8_to_utf32(const std::string &s) {
-  std::u32string out;
-  size_t i = 0;
-  while (i < s.size()) {
-    char32_t cp = 0;
-    size_t adv = 0;
-    if (!utf8_decode_at(s, i, cp, adv)) {
-      break;
-    }
-    out.push_back(cp);
-    i += adv;
-  }
-  return out;
-}
-
-std::string unicode_lower_utf8(const std::string &s) {
-  std::string out;
-  size_t i = 0;
-  while (i < s.size()) {
-    char32_t cp = 0;
-    size_t adv = 0;
-    utf8_decode_at(s, i, cp, adv);
-    const char *rep = lookup_sorted_pair(k_unicode_lower_table, k_unicode_lower_table_size, cp);
-    if (rep != nullptr) {
-      out += rep;
-    } else {
-      utf8_append_codepoint(out, cp);
-    }
-    i += adv;
-  }
-  return out;
-}
-
-std::string strip_accents_utf8(const std::string &s) {
-  std::string out;
-  size_t i = 0;
-  while (i < s.size()) {
-    char32_t cp = 0;
-    size_t adv = 0;
-    utf8_decode_at(s, i, cp, adv);
-    const char *rep = lookup_sorted_pair(k_unicode_strip_table, k_unicode_strip_table_size, cp);
-    if (rep != nullptr) {
-      out += rep;
-    } else {
-      utf8_append_codepoint(out, cp);
-    }
-    i += adv;
-  }
-  return out;
-}
-
-std::string word_key(const std::string &wraw) {
-  return strip_accents_utf8(unicode_lower_utf8(wraw));
-}
+using moonshine_g2p::utf8_append_codepoint;
+using moonshine_g2p::utf8_decode_at;
 
 bool is_vowel_ch(char32_t ch) {
   const char32_t cl = ch == U'Ü' ? U'ü' : ch;
@@ -202,7 +51,7 @@ bool should_hiatus(char32_t a, char32_t b) {
     return true;
   }
   auto strip_one = [](char32_t c) -> char32_t {
-    const char *r = lookup_sorted_pair(k_unicode_strip_table, k_unicode_strip_table_size, c);
+    const char *r = spanish_unicode::strip_replacement_utf8(c);
     if (r == nullptr || *r == '\0') {
       return c;
     }
@@ -327,13 +176,13 @@ std::u32string clean_syllable_word(const std::u32string &word_lower) {
 }
 
 std::vector<std::string> orthographic_syllables_utf8(const std::string &word_lower_utf8) {
-  const std::u32string w = clean_syllable_word(utf8_to_utf32(word_lower_utf8));
+  const std::u32string w = clean_syllable_word(spanish_unicode::utf8_to_utf32(word_lower_utf8));
   if (w.empty()) {
     return {};
   }
   const auto spans = vowel_nucleus_spans(w);
   if (spans.empty()) {
-    return {utf32_to_utf8(w)};
+    return {spanish_unicode::utf32_to_utf8(w)};
   }
   std::vector<std::string> syllables;
   const size_t first_s = spans[0].first;
@@ -346,10 +195,10 @@ std::vector<std::string> orthographic_syllables_utf8(const std::string &word_low
       const size_t next_s = spans[idx + 1].first;
       const std::u32string cluster = w.substr(e, next_s - e);
       const auto pr = split_intervocalic_cluster_u32(cluster);
-      syllables.push_back(utf32_to_utf8(cur + pr.first));
+      syllables.push_back(spanish_unicode::utf32_to_utf8(cur + pr.first));
       cur = pr.second;
     } else {
-      syllables.push_back(utf32_to_utf8(cur + w.substr(e)));
+      syllables.push_back(spanish_unicode::utf32_to_utf8(cur + w.substr(e)));
     }
   }
   std::vector<std::string> nonempty;
@@ -362,7 +211,7 @@ std::vector<std::string> orthographic_syllables_utf8(const std::string &word_low
 }
 
 size_t default_stressed_syllable_index_v2(const std::u32string &w_clean_lower) {
-  const std::string wutf = utf32_to_utf8(w_clean_lower);
+  const std::string wutf = spanish_unicode::utf32_to_utf8(w_clean_lower);
   const auto syl = orthographic_syllables_utf8(wutf);
   if (syl.empty()) {
     return 0;
@@ -371,7 +220,7 @@ size_t default_stressed_syllable_index_v2(const std::u32string &w_clean_lower) {
         return c == U'á' || c == U'é' || c == U'í' || c == U'ó' || c == U'ú';
       })) {
     for (size_t i = 0; i < syl.size(); ++i) {
-      const std::u32string su = utf8_to_utf32(syl[i]);
+      const std::u32string su = spanish_unicode::utf8_to_utf32(syl[i]);
       if (std::any_of(su.begin(), su.end(), [](char32_t c) {
             return c == U'á' || c == U'é' || c == U'í' || c == U'ó' || c == U'ú';
           })) {
@@ -384,10 +233,10 @@ size_t default_stressed_syllable_index_v2(const std::u32string &w_clean_lower) {
     return 0;
   }
   const std::string last_stripped =
-      strip_accents_utf8(utf32_to_utf8(std::u32string(1, w_clean_lower.back())));
+      spanish_unicode::strip_accents_utf8(spanish_unicode::utf32_to_utf8(std::u32string(1, w_clean_lower.back())));
   char32_t last = U' ';
   if (!last_stripped.empty()) {
-    last = utf8_to_utf32(last_stripped).front();
+    last = spanish_unicode::utf8_to_utf32(last_stripped).front();
   }
   const bool ends_vowel = (last == U'a' || last == U'e' || last == U'i' || last == U'o' || last == U'u');
   if (ends_vowel || w_clean_lower.back() == U'n' || w_clean_lower.back() == U's') {
@@ -424,7 +273,7 @@ std::string apply_nasal_assimilation(std::string s, const SpanishDialect &dialec
   if (!dialect.nasal_assimilation) {
     return s;
   }
-  const std::u32string u = utf8_to_utf32(s);
+  const std::u32string u = spanish_unicode::utf8_to_utf32(s);
   std::u32string o;
   o.reserve(u.size());
   for (size_t i = 0; i < u.size(); ++i) {
@@ -445,11 +294,11 @@ std::string apply_nasal_assimilation(std::string s, const SpanishDialect &dialec
     }
     o.push_back(u[i]);
   }
-  return utf32_to_utf8(o);
+  return spanish_unicode::utf32_to_utf8(o);
 }
 
 std::string insert_primary_stress_before_vowel(const std::string &ipa) {
-  std::u32string u = utf8_to_utf32(ipa);
+  std::u32string u = spanish_unicode::utf8_to_utf32(ipa);
   std::u32string no;
   for (char32_t c : u) {
     if (c != U'\u02c8') {
@@ -463,10 +312,10 @@ std::string insert_primary_stress_before_vowel(const std::string &ipa) {
       out.insert(out.end(), no.begin(), no.begin() + static_cast<std::ptrdiff_t>(i));
       out.push_back(U'\u02c8');
       out.insert(out.end(), no.begin() + static_cast<std::ptrdiff_t>(i), no.end());
-      return utf32_to_utf8(out);
+      return spanish_unicode::utf32_to_utf8(out);
     }
   }
-  return std::string("\xcb\x88") + utf32_to_utf8(no);
+  return std::string("\xcb\x88") + spanish_unicode::utf32_to_utf8(no);
 }
 
 size_t count_primary_stress_utf8(const std::string &ipa) {
@@ -495,7 +344,7 @@ bool ipa_stress_at_start(const std::string &ipa) {
 
 std::string apply_narrow_intervocalic_obstruents(std::string ipa) {
   for (;;) {
-    std::u32string u = utf8_to_utf32(ipa);
+    std::u32string u = spanish_unicode::utf8_to_utf32(ipa);
     bool changed = false;
     auto is_v = [](char32_t c) {
       return c == U'a' || c == U'e' || c == U'i' || c == U'o' || c == U'u';
@@ -518,7 +367,7 @@ std::string apply_narrow_intervocalic_obstruents(std::string ipa) {
         changed = true;
       }
     }
-    std::string s2 = utf32_to_utf8(u);
+    std::string s2 = spanish_unicode::utf32_to_utf8(u);
     if (s2 == ipa) {
       break;
     }
@@ -606,8 +455,8 @@ bool y_is_consonant(const std::u32string &letters_lower, size_t i) {
 char32_t to_lower_cp(char32_t c) {
   std::string tmp;
   utf8_append_codepoint(tmp, c);
-  const std::string lo = unicode_lower_utf8(tmp);
-  const std::u32string u = utf8_to_utf32(lo);
+  const std::string lo = spanish_unicode::unicode_lower_utf8(tmp);
+  const std::u32string u = spanish_unicode::utf8_to_utf32(lo);
   return u.empty() ? c : u.front();
 }
 
@@ -1016,7 +865,7 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
   if (wraw.empty()) {
     return "";
   }
-  const std::string wkey = word_key(wraw);
+  const std::string wkey = spanish_unicode::word_key(wraw);
   const char *exc = lookup_x_exception(wkey);
   if (exc != nullptr && dialect.id.starts_with("es")) {
     return postprocess_lexical_ipa(std::string(exc), dialect, with_stress);
@@ -1031,13 +880,13 @@ std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &d
     lw.push_back(to_lower_cp(c));
   }
 
-  const auto syl = orthographic_syllables_utf8(utf32_to_utf8(lw));
+  const auto syl = orthographic_syllables_utf8(spanish_unicode::utf32_to_utf8(lw));
   const size_t stress_idx =
       with_stress ? default_stressed_syllable_index_v2(clean_syllable_word(lw)) : static_cast<size_t>(-1);
   size_t offset = 0;
   std::vector<std::string> parts;
   for (const auto &s : syl) {
-    const std::u32string su = utf8_to_utf32(s);
+    const std::u32string su = spanish_unicode::utf8_to_utf32(s);
     parts.push_back(letters_to_ipa_no_stress(su, dialect, offset));
     offset += su.size();
   }
@@ -1064,29 +913,29 @@ std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &d
     char32_t cp = 0;
     size_t adv = 0;
     utf8_decode_at(text, pos, cp, adv);
-    if (unicode_is_space_char(cp)) {
+    if (spanish_unicode::is_space_char(cp)) {
       out.push_back(' ');
       while (pos < n) {
         utf8_decode_at(text, pos, cp, adv);
-        if (!unicode_is_space_char(cp)) {
+        if (!spanish_unicode::is_space_char(cp)) {
           break;
         }
         pos += adv;
       }
       continue;
     }
-    if (unicode_is_word_char(cp)) {
+    if (spanish_unicode::is_word_char(cp)) {
       size_t start = pos;
       pos += adv;
       while (pos < n) {
         utf8_decode_at(text, pos, cp, adv);
-        if (!unicode_is_word_char(cp)) {
+        if (!spanish_unicode::is_word_char(cp)) {
           break;
         }
         pos += adv;
       }
       const std::string tok = text.substr(start, pos - start);
-      const std::string k = word_key(tok);
+      const std::string k = spanish_unicode::word_key(tok);
       const char *exc = lookup_x_exception(k);
       std::string wipa;
       if (exc != nullptr) {
@@ -1107,7 +956,7 @@ std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &d
     pos += adv;
     while (pos < n) {
       utf8_decode_at(text, pos, cp, adv);
-      if (unicode_is_word_char(cp) || unicode_is_space_char(cp)) {
+      if (spanish_unicode::is_word_char(cp) || spanish_unicode::is_space_char(cp)) {
         break;
       }
       pos += adv;

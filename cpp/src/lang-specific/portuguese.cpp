@@ -1,6 +1,8 @@
 #include "moonshine_g2p/lang-specific/portuguese.hpp"
+#include "moonshine_g2p/lang-specific/portuguese_rules.hpp"
 
 #include "moonshine_g2p/g2p_word_log.hpp"
+#include "moonshine_g2p/ipa_symbols.hpp"
 #include "moonshine_g2p/lang-specific/german.hpp"
 #include "moonshine_g2p/utf8_utils.hpp"
 
@@ -24,149 +26,13 @@
 namespace moonshine_g2p {
 namespace {
 
-const std::string kPri{"\xCB\x88"};
-const std::string kSec{"\xCB\x8C"};
+const std::string& kPri = ipa::kPrimaryStressUtf8;
+const std::string& kSec = ipa::kSecondaryStressUtf8;
 
-std::string trim_sv(std::string_view s) {
-  size_t a = 0;
-  size_t b = s.size();
-  while (a < b && std::isspace(static_cast<unsigned char>(s[a])) != 0) {
-    ++a;
-  }
-  while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1])) != 0) {
-    --b;
-  }
-  return std::string(s.substr(a, b - a));
-}
-
-bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& out_len) {
-  const size_t n = s.size();
-  if (i >= n) {
-    return false;
-  }
-  const unsigned char c0 = static_cast<unsigned char>(s[i]);
-  if (c0 < 0x80) {
-    out_cp = c0;
-    out_len = 1;
-    return true;
-  }
-  if ((c0 >> 5) == 0x6 && i + 1 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    if ((c1 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x1Fu) << 6) | (c1 & 0x3Fu);
-    out_len = 2;
-    return true;
-  }
-  if ((c0 >> 4) == 0xE && i + 2 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x0Fu) << 12) | ((c1 & 0x3F) << 6) | (c2 & 0x3F);
-    out_len = 3;
-    return true;
-  }
-  if ((c0 >> 3) == 0x1E && i + 3 < n) {
-    const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-    const unsigned char c2 = static_cast<unsigned char>(s[i + 2]);
-    const unsigned char c3 = static_cast<unsigned char>(s[i + 3]);
-    if ((c1 >> 6) != 0x2 || (c2 >> 6) != 0x2 || (c3 >> 6) != 0x2) {
-      out_cp = c0;
-      out_len = 1;
-      return true;
-    }
-    out_cp = (static_cast<char32_t>(c0 & 0x07u) << 18) | ((c1 & 0x3F) << 12) | ((c2 & 0x3F) << 6) |
-             (c3 & 0x3F);
-    out_len = 4;
-    return true;
-  }
-  out_cp = c0;
-  out_len = 1;
-  return true;
-}
-
-char32_t pt_tolower(char32_t c) {
-  switch (c) {
-  case U'À':
-    return U'à';
-  case U'Á':
-    return U'á';
-  case U'Â':
-    return U'â';
-  case U'Ã':
-    return U'ã';
-  case U'Ç':
-    return U'ç';
-  case U'É':
-    return U'é';
-  case U'Ê':
-    return U'ê';
-  case U'Í':
-    return U'í';
-  case U'Ó':
-    return U'ó';
-  case U'Ô':
-    return U'ô';
-  case U'Õ':
-    return U'õ';
-  case U'Ú':
-    return U'ú';
-  case U'Ü':
-    return U'ü';
-  case U'Ý':
-    return U'ý';
-  default:
-    break;
-  }
-  if (c >= U'A' && c <= U'Z') {
-    return c + 32;
-  }
-  if ((c >= U'\u00C0' && c <= U'\u00D6') || (c >= U'\u00D8' && c <= U'\u00DE')) {
-    return c + 32;
-  }
-  return c;
-}
-
-bool is_pt_key_cp(char32_t c) {
-  c = pt_tolower(c);
-  if (c == U'\u2019') {
-    c = U'\'';
-  }
-  if (c >= U'a' && c <= U'z') {
-    return true;
-  }
-  if (c == U'\'' || c == U'-') {
-    return true;
-  }
-  return c == U'à' || c == U'á' || c == U'â' || c == U'ã' || c == U'ç' || c == U'é' || c == U'ê' ||
-         c == U'í' || c == U'ó' || c == U'ô' || c == U'õ' || c == U'ú' || c == U'ü' || c == U'ý';
-}
-
-std::string normalize_lookup_key_utf8(const std::string& word) {
-  std::string out;
-  size_t i = 0;
-  while (i < word.size()) {
-    char32_t cp = 0;
-    size_t adv = 0;
-    utf8_decode_at(word, i, cp, adv);
-    if (cp == U'\u2019') {
-      cp = U'\'';
-    }
-    const char32_t cl = pt_tolower(cp);
-    if (is_pt_key_cp(cl)) {
-      utf8_append_codepoint(out, cl);
-    }
-    i += adv;
-  }
-  return out;
-}
+using moonshine_g2p::erase_utf8_substr;
+using moonshine_g2p::trim_ascii_ws_copy;
+using moonshine_g2p::utf8_append_codepoint;
+using moonshine_g2p::utf8_decode_at;
 
 std::string utf8_lowercase_pt_surface(const std::string& word) {
   std::string out;
@@ -175,7 +41,7 @@ std::string utf8_lowercase_pt_surface(const std::string& word) {
     char32_t cp = 0;
     size_t adv = 0;
     utf8_decode_at(word, i, cp, adv);
-    utf8_append_codepoint(out, pt_tolower(cp));
+    utf8_append_codepoint(out, portuguese_rules::pt_tolower(cp));
     i += adv;
   }
   return out;
@@ -196,9 +62,9 @@ void load_pt_lexicon_file(const std::filesystem::path& path, std::unordered_map<
     if (tab == std::string::npos) {
       continue;
     }
-    std::string surf = trim_sv(line.substr(0, tab));
-    std::string ipa = trim_sv(line.substr(tab + 1));
-    const std::string k = normalize_lookup_key_utf8(surf);
+    std::string surf = trim_ascii_ws_copy(line.substr(0, tab));
+    std::string ipa = trim_ascii_ws_copy(line.substr(tab + 1));
+    const std::string k = portuguese_rules::normalize_lookup_key_utf8(surf);
     if (k.empty()) {
       continue;
     }
@@ -213,13 +79,6 @@ void load_pt_lexicon_file(const std::filesystem::path& path, std::unordered_map<
   out.clear();
   for (auto& e : tmp) {
     out.emplace(std::move(e.first), std::move(e.second.first));
-  }
-}
-
-void erase_utf8_substr(std::string& s, const std::string& sub) {
-  size_t p = 0;
-  while ((p = s.find(sub, p)) != std::string::npos) {
-    s.erase(p, sub.size());
   }
 }
 
@@ -442,8 +301,6 @@ std::string expand_digit_tokens_in_text(std::string text, bool is_pt_pt) {
   return out;
 }
 
-#include "lang-specific/portuguese_rules.inc"
-
 bool is_pt_word_char(char32_t cp) {
   if (cp == U'-' || cp == U'\'' || cp == U'\u2019') {
     return true;
@@ -466,7 +323,7 @@ bool is_pt_word_char(char32_t cp) {
       return true;
     }
   }
-  cp = pt_tolower(cp);
+  cp = portuguese_rules::pt_tolower(cp);
   if (cp >= U'a' && cp <= U'z') {
     return true;
   }
@@ -554,11 +411,11 @@ std::string PortugueseRuleG2p::finalize_ipa(std::string ipa, bool from_lexicon) 
 }
 
 std::string PortugueseRuleG2p::lookup_or_rules(const std::string& raw_word) const {
-  const std::string letters_only = normalize_lookup_key_utf8(raw_word);
+  const std::string letters_only = portuguese_rules::normalize_lookup_key_utf8(raw_word);
   if (letters_only.empty()) {
     return "";
   }
-  const auto rom = roman_numeral_token_to_ipa(letters_only, is_portugal_);
+  const auto rom = portuguese_rules::roman_numeral_token_to_ipa(letters_only, is_portugal_);
   if (rom.has_value()) {
     return finalize_ipa(*rom, true);
   }
@@ -597,21 +454,22 @@ std::string PortugueseRuleG2p::lookup_or_rules(const std::string& raw_word) cons
       return finalize_ipa(std::move(merged), true);
     }
   }
-  const auto& fw = is_portugal_ ? kFwPt : kFwBr;
+  const auto& fw = is_portugal_ ? portuguese_rules::fw_pt() : portuguese_rules::fw_br();
   auto fi = fw.find(letters_only);
   if (fi != fw.end()) {
     return finalize_ipa(fi->second, false);
   }
-  std::string ipa_rules = rules_word_to_ipa_utf8(trim_sv(raw_word), is_portugal_, options_.with_stress);
-  const bool oov_sc = kScStraddle.count(letters_only) != 0;
+  std::string ipa_rules =
+      portuguese_rules::rules_word_to_ipa_utf8(trim_ascii_ws_copy(raw_word), is_portugal_, options_.with_stress);
+  const bool oov_sc = portuguese_rules::sc_straddle().count(letters_only) != 0;
   if (is_portugal_ && options_.apply_pt_pt_final_esh && !oov_sc) {
-    ipa_rules = pt_pt_apply_rules_final_s_to_esh(std::move(ipa_rules), letters_only);
+    ipa_rules = portuguese_rules::pt_pt_apply_rules_final_s_to_esh(std::move(ipa_rules), letters_only);
   }
   return finalize_ipa(std::move(ipa_rules), oov_sc);
 }
 
 std::string PortugueseRuleG2p::word_to_ipa(const std::string& word) const {
-  const std::string wraw = trim_sv(word);
+  const std::string wraw = trim_ascii_ws_copy(word);
   if (wraw.empty()) {
     return "";
   }
@@ -654,7 +512,7 @@ std::string PortugueseRuleG2p::text_to_ipa_no_expand(const std::string& text,
     size_t wend = 0;
     if (try_consume_pt_word(text, pos, wend)) {
       const std::string tok = text.substr(pos, wend - pos);
-      const std::string k = normalize_lookup_key_utf8(tok);
+      const std::string k = portuguese_rules::normalize_lookup_key_utf8(tok);
       std::string wipa = word_to_ipa(tok);
       if (per_word_log != nullptr) {
         per_word_log->push_back(G2pWordLog{tok, k, G2pWordPath::kRuleBasedG2p, wipa});
@@ -709,7 +567,7 @@ std::string PortugueseRuleG2p::text_to_ipa(const std::string& text,
 }
 
 static std::string norm_pt_dialect_key(std::string_view raw) {
-  std::string s(trim_sv(raw));
+  std::string s(trim_ascii_ws_copy(raw));
   for (char& c : s) {
     if (c == '_') {
       c = '-';
