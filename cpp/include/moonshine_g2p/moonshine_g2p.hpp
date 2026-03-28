@@ -2,6 +2,7 @@
 
 #include "moonshine_g2p/g2p_word_log.hpp"
 #include "moonshine_g2p/lang-specific/dutch.hpp"
+#include "moonshine_g2p/lang-specific/italian.hpp"
 #include "moonshine_g2p/lang-specific/french.hpp"
 #include "moonshine_g2p/lang-specific/german.hpp"
 #include "moonshine_g2p/lang-specific/spanish.hpp"
@@ -45,6 +46,11 @@ struct MoonshineG2POptions {
   bool dutch_with_stress = true;
   bool dutch_vocoder_stress = true;
   bool dutch_expand_cardinal_digits = true;
+  /// Italian rule G2P (``it``, ``it-IT``, ``italian``): ``<model-root>/../data/it/dict.tsv`` or ``<model-root>/it/dict.tsv``.
+  std::optional<std::filesystem::path> italian_dict_path;
+  bool italian_with_stress = true;
+  bool italian_vocoder_stress = true;
+  bool italian_expand_cardinal_digits = true;
   /// If set, override paths from g2p-config.json (same semantics as the CLI).
   std::optional<std::filesystem::path> dict_path_override;
   std::optional<std::filesystem::path> heteronym_onnx_override;
@@ -71,6 +77,7 @@ class MoonshineG2P {
   [[nodiscard]] bool uses_german_rules() const { return german_.has_value(); }
   [[nodiscard]] bool uses_french_rules() const { return french_.has_value(); }
   [[nodiscard]] bool uses_dutch_rules() const { return dutch_.has_value(); }
+  [[nodiscard]] bool uses_italian_rules() const { return italian_.has_value(); }
   [[nodiscard]] bool uses_onnx() const { return onnx_ != nullptr; }
 
   /// Canonical dialect id (e.g. ``es-AR`` for Spanish, or the normalized ONNX subdir form
@@ -84,6 +91,7 @@ class MoonshineG2P {
   std::optional<GermanRuleG2p> german_;
   std::optional<FrenchRuleG2p> french_;
   std::optional<DutchRuleG2p> dutch_;
+  std::optional<ItalianRuleG2p> italian_;
   std::unique_ptr<MoonshineOnnxG2p> onnx_;
 };
 
