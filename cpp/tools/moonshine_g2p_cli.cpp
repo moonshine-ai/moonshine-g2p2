@@ -10,9 +10,11 @@
 
 using moonshine_g2p::MoonshineG2P;
 using moonshine_g2p::MoonshineG2POptions;
+using moonshine_g2p::dialect_resolves_to_brazilian_portuguese_rules;
 using moonshine_g2p::dialect_resolves_to_dutch_rules;
 using moonshine_g2p::dialect_resolves_to_french_rules;
 using moonshine_g2p::dialect_resolves_to_german_rules;
+using moonshine_g2p::dialect_resolves_to_portugal_rules;
 using moonshine_g2p::dialect_resolves_to_spanish_rules;
 using moonshine_g2p::format_g2p_word_log_line;
 using moonshine_g2p::spanish_dialect_cli_ids;
@@ -28,6 +30,7 @@ void usage(const char *argv0) {
       << "       [--no-stress] [--broad-phonemes] [--stdin]\n"
       << "       [--german-dict PATH] [--german-syllable-initial-stress]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
+      << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
       << "       [--french-dict PATH] [--french-csv-dir DIR]\n"
       << "       [--no-french-liaison] [--no-french-oov] [--no-french-expand-digits]\n"
       << "       [--no-french-optional-liaison]\n"
@@ -42,6 +45,8 @@ void usage(const char *argv0) {
          "or <model-root>/fr/dict.tsv; POS CSVs in the same directory tree.\n"
       << "  Dutch (nl, nl-NL, dutch): rule-based G2P; default lexicon <model-root>/../data/nl/dict.tsv "
          "or <model-root>/nl/dict.tsv; override with --dutch-dict.\n"
+      << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
+         "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  -d PATH is an alias for --dict PATH.\n";
 }
 
@@ -92,6 +97,12 @@ int main(int argc, char **argv) {
       opt.german_dict_path = argv[++i];
     } else if (a == "--dutch-dict" && i + 1 < argc) {
       opt.dutch_dict_path = argv[++i];
+    } else if (a == "--portuguese-dict" && i + 1 < argc) {
+      opt.portuguese_dict_path = argv[++i];
+    } else if (a == "--portuguese-syllable-initial-stress") {
+      opt.portuguese_vocoder_stress = false;
+    } else if (a == "--no-portuguese-expand-digits") {
+      opt.portuguese_expand_cardinal_digits = false;
     } else if (a == "--french-dict" && i + 1 < argc) {
       opt.french_dict_path = argv[++i];
     } else if (a == "--french-csv-dir" && i + 1 < argc) {
@@ -115,6 +126,8 @@ int main(int argc, char **argv) {
       opt.german_with_stress = false;
       opt.french_with_stress = false;
       opt.dutch_with_stress = false;
+      opt.italian_with_stress = false;
+      opt.portuguese_with_stress = false;
     } else if (a == "--broad-phonemes") {
       opt.spanish_narrow_obstruents = false;
     } else if (a == "--stdin") {
@@ -145,7 +158,9 @@ int main(int argc, char **argv) {
              dialect_resolves_to_spanish_rules(dialect_str, opt.spanish_narrow_obstruents) ||
              dialect_resolves_to_german_rules(dialect_str) ||
              dialect_resolves_to_french_rules(dialect_str) ||
-             dialect_resolves_to_dutch_rules(dialect_str)) {
+             dialect_resolves_to_dutch_rules(dialect_str) ||
+             dialect_resolves_to_brazilian_portuguese_rules(dialect_str) ||
+             dialect_resolves_to_portugal_rules(dialect_str)) {
     phrase = read_all_stdin();
   } else {
     phrase = "Hello world!";

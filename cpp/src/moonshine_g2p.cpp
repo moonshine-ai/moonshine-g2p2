@@ -97,7 +97,7 @@ void resolve_onnx_paths(const std::filesystem::path& data_root, const MoonshineG
     if (!opt.heteronym_onnx_override && !opt.oov_onnx_override && !opt.dict_path_override) {
       throw std::runtime_error(
           "No ONNX G2P bundle: g2p-config.json not found at " + g2p_config_path.generic_string() +
-          " (use path overrides or pick a dialect with rule-based G2P, e.g. es-MX).");
+          " (use path overrides or pick a dialect with rule-based G2P, e.g. es-MX, pt_br, de).");
     }
     dict_path = opt.dict_path_override;
     het_onnx_path = opt.heteronym_onnx_override;
@@ -229,6 +229,28 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
     return;
   }
 
+  const bool want_pt_br = dialect_resolves_to_brazilian_portuguese_rules(trimmed);
+  const bool want_pt_pt = dialect_resolves_to_portugal_rules(trimmed);
+  if (want_pt_br || want_pt_pt) {
+    const bool is_portugal = want_pt_pt && !want_pt_br;
+    const std::filesystem::path pdict =
+        options.portuguese_dict_path.value_or(resolve_portuguese_dict_path(options.model_root, is_portugal));
+    if (!std::filesystem::is_regular_file(pdict)) {
+      throw std::runtime_error(
+          "Portuguese G2P: lexicon not found at " + pdict.generic_string() +
+          " (set MoonshineG2POptions::portuguese_dict_path)");
+    }
+    portuguese_.emplace(
+        pdict, is_portugal,
+        PortugueseRuleG2p::Options{.with_stress = options.portuguese_with_stress,
+                                    .vocoder_stress = options.portuguese_vocoder_stress,
+                                    .keep_syllable_dots = options.portuguese_keep_syllable_dots,
+                                    .apply_pt_pt_final_esh = options.portuguese_apply_pt_pt_final_esh,
+                                    .expand_cardinal_digits = options.portuguese_expand_cardinal_digits});
+    dialect_id_ = is_portugal ? "pt-PT" : "pt-BR";
+    return;
+  }
+
   dialect_id_ = dialect_to_onnx_model_subdir(trimmed);
   std::optional<std::filesystem::path> dict_path;
   std::optional<std::filesystem::path> het_onnx_path;
@@ -259,6 +281,9 @@ std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWord
   }
   if (italian_.has_value()) {
     return italian_->text_to_ipa(std::string(text), per_word_log);
+  }
+  if (portuguese_.has_value()) {
+    return portuguese_->text_to_ipa(std::string(text), per_word_log);
   }
   if (onnx_) {
     return onnx_->text_to_ipa(text, per_word_log);
