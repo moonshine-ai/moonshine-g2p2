@@ -11,6 +11,7 @@
 #include <cwctype>
 #include <fstream>
 #include <limits>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -935,6 +936,8 @@ bool try_consume_unicode_word(const std::string& text, size_t pos, size_t& out_e
 
 }  // namespace
 
+#include "russian-numbers.cpp"
+
 RussianRuleG2p::RussianRuleG2p(std::filesystem::path dict_tsv)
     : RussianRuleG2p(std::move(dict_tsv), Options{}) {}
 
@@ -1003,10 +1006,24 @@ std::string RussianRuleG2p::word_to_ipa(const std::string& word) const {
   if (wraw.empty()) {
     return "";
   }
+  if (options_.expand_cardinal_digits && ru_ascii_all_digits(wraw)) {
+    const std::string phrase = expand_cardinal_digits_to_russian_words(wraw);
+    if (phrase != wraw) {
+      return text_to_ipa_no_expand(phrase, nullptr);
+    }
+    return wraw;
+  }
+  if (!options_.expand_cardinal_digits) {
+    static const std::regex dig_pass(R"(^[0-9]+(?:-[0-9]+)*$)", std::regex::ECMAScript);
+    if (std::regex_match(wraw, dig_pass)) {
+      return wraw;
+    }
+  }
   return lookup_or_rules(wraw);
 }
 
-std::string RussianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
+std::string RussianRuleG2p::text_to_ipa_no_expand(const std::string& text,
+                                                  std::vector<G2pWordLog>* per_word_log) const {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -1076,6 +1093,13 @@ std::string RussianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog
     collapsed.pop_back();
   }
   return collapsed;
+}
+
+std::string RussianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
+  if (options_.expand_cardinal_digits) {
+    text = expand_russian_digit_tokens_in_text(std::move(text));
+  }
+  return text_to_ipa_no_expand(text, per_word_log);
 }
 
 bool dialect_resolves_to_russian_rules(std::string_view dialect_id) {

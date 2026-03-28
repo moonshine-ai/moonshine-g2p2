@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -762,6 +763,8 @@ SpanishDialect make_common(const std::string &id, std::string ce_ci_z_ipa, bool 
 
 } // namespace
 
+#include "spanish-numbers.cpp"
+
 std::vector<std::string> spanish_dialect_cli_ids() {
   return {"es-419", "es-AR", "es-BO", "es-CL", "es-CO", "es-CU", "es-DO", "es-EC", "es-ES",
           "es-ES-distincion", "es-GT", "es-MX", "es-PE", "es-PR", "es-PY", "es-UY", "es-VE"};
@@ -855,8 +858,10 @@ SpanishDialect spanish_dialect_from_cli_id(const std::string &cli_id, bool narro
   throw std::invalid_argument("unknown dialect id \"" + key + "\"");
 }
 
-SpanishRuleG2p::SpanishRuleG2p(SpanishDialect dialect, bool with_stress)
-    : dialect_(std::move(dialect)), with_stress_(with_stress) {}
+SpanishRuleG2p::SpanishRuleG2p(SpanishDialect dialect, bool with_stress, bool expand_cardinal_digits)
+    : dialect_(std::move(dialect)),
+      with_stress_(with_stress),
+      expand_cardinal_digits_(expand_cardinal_digits) {}
 
 std::string SpanishRuleG2p::word_to_ipa(const std::string &word) const {
   const std::string wraw = [&]() {
@@ -871,6 +876,19 @@ std::string SpanishRuleG2p::word_to_ipa(const std::string &word) const {
   }();
   if (wraw.empty()) {
     return "";
+  }
+  if (expand_cardinal_digits_ && es_ascii_all_digits(wraw)) {
+    const std::string phrase = expand_cardinal_digits_to_spanish_words(wraw);
+    if (phrase != wraw) {
+      return text_to_ipa_no_expand(phrase, nullptr);
+    }
+    return wraw;
+  }
+  if (!expand_cardinal_digits_) {
+    static const std::regex dig_pass(R"(^[0-9]+$)", std::regex::ECMAScript);
+    if (std::regex_match(wraw, dig_pass)) {
+      return wraw;
+    }
   }
   const std::string wkey = spanish_unicode::word_key(wraw);
   const char *exc = lookup_x_exception(wkey);
@@ -911,7 +929,8 @@ std::string SpanishRuleG2p::word_to_ipa(const std::string &word) const {
   return ipa;
 }
 
-std::string SpanishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog> *per_word_log) {
+std::string SpanishRuleG2p::text_to_ipa_no_expand(const std::string &text,
+                                                  std::vector<G2pWordLog> *per_word_log) const {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -992,13 +1011,21 @@ std::string SpanishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog
   return collapsed;
 }
 
-std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &dialect, bool with_stress) {
-  return SpanishRuleG2p(dialect, with_stress).word_to_ipa(word);
+std::string SpanishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog> *per_word_log) {
+  if (expand_cardinal_digits_) {
+    text = expand_spanish_digit_tokens_in_text(std::move(text));
+  }
+  return text_to_ipa_no_expand(text, per_word_log);
+}
+
+std::string spanish_word_to_ipa(const std::string &word, const SpanishDialect &dialect, bool with_stress,
+                                bool expand_cardinal_digits) {
+  return SpanishRuleG2p(dialect, with_stress, expand_cardinal_digits).word_to_ipa(word);
 }
 
 std::string spanish_text_to_ipa(const std::string &text, const SpanishDialect &dialect, bool with_stress,
-                                std::vector<G2pWordLog> *per_word_log) {
-  return SpanishRuleG2p(dialect, with_stress).text_to_ipa(text, per_word_log);
+                                std::vector<G2pWordLog> *per_word_log, bool expand_cardinal_digits) {
+  return SpanishRuleG2p(dialect, with_stress, expand_cardinal_digits).text_to_ipa(text, per_word_log);
 }
 
 } // namespace moonshine_g2p

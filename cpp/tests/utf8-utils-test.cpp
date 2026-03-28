@@ -27,3 +27,15 @@ TEST_CASE("utf8_find_token_codepoints") {
   CHECK(hit->first == 2);
   CHECK(hit->second == 6);
 }
+
+TEST_CASE("digit_ascii_span_expandable_python_w") {
+  // Space-delimited digit expands; digit glued to katakana (U+30EA リ) does not.
+  const std::string glued = "\xe3\x83\xaa" "3";  // リ + ASCII 3
+  REQUIRE(glued.size() == 4);
+  CHECK_FALSE(digit_ascii_span_expandable_python_w(glued, 3, 4));
+
+  const std::string spaced = "x 3 , y";
+  const size_t q = spaced.find('3');
+  REQUIRE(q != std::string::npos);
+  CHECK(digit_ascii_span_expandable_python_w(spaced, q, q + 1));
+}

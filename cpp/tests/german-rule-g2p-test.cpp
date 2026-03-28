@@ -95,6 +95,27 @@ TEST_CASE("german: text token preserves comma") {
   std::filesystem::remove(p);
 }
 
+TEST_CASE("german: Im Jahr 1891 matches Python when data and python3 exist") {
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const std::filesystem::path dict = repo / "data" / "de" / "dict.tsv";
+  if (!std::filesystem::is_regular_file(dict) || !python_german_import_ok()) {
+    return;
+  }
+  const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path tmp =
+      std::filesystem::temp_directory_path() / ("de_g2p_digits_" + std::to_string(tick) + ".txt");
+  {
+    std::ofstream o(tmp, std::ios::binary);
+    o << "Im Jahr 1891";
+  }
+  const std::vector<std::string> py = r::python_ref_first_lines(repo, "german_g2p_ref.py", tmp, 1);
+  std::error_code ec;
+  std::filesystem::remove(tmp, ec);
+  REQUIRE(py.size() == 1);
+  moonshine_g2p::GermanRuleG2p g(dict);
+  CHECK(g.text_to_ipa("Im Jahr 1891") == py[0]);
+}
+
 TEST_CASE("german: wiki-text first 100 lines match Python when data and python3 exist") {
   constexpr std::size_t kWikiParityLines = 100;
   const auto repo = r::repo_root_from_tests_cpp(__FILE__);

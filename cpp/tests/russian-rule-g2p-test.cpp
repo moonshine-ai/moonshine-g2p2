@@ -102,6 +102,28 @@ TEST_CASE("russian: litva matches Python when data and python3 exist") {
             "\xD0\x9B\xD0\xB8\xD1\x82\xD0\xB2\xD0\xB0") == py);
 }
 
+TEST_CASE("russian: Cyrillic preposition plus 1891 matches Python when data and python3 exist") {
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  const std::filesystem::path dict = repo / "data" / "ru" / "dict.tsv";
+  if (!std::filesystem::is_regular_file(dict) || !python_russian_import_ok()) {
+    return;
+  }
+  const std::string line = "\xD0\x92 1891";  // "В 1891"
+  const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path tmp =
+      std::filesystem::temp_directory_path() / ("ru_g2p_digits_" + std::to_string(tick) + ".txt");
+  {
+    std::ofstream o(tmp, std::ios::binary);
+    o << line;
+  }
+  const std::vector<std::string> py = python_ipa_first_lines(tmp, 1);
+  std::error_code ec;
+  std::filesystem::remove(tmp, ec);
+  REQUIRE(py.size() == 1);
+  moonshine_g2p::RussianRuleG2p g(dict);
+  CHECK(g.text_to_ipa(line) == py[0]);
+}
+
 TEST_CASE("russian: wiki-text first 100 lines match Python when data and python3 exist") {
   constexpr std::size_t kWikiParityLines = 100;
   const auto repo = r::repo_root_from_tests_cpp(__FILE__);

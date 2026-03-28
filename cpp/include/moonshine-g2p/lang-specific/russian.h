@@ -19,6 +19,8 @@ class RussianRuleG2p : public RuleBasedG2p {
     bool with_stress = true;
     /// When true (default), move ˈ/ˌ before the syllable nucleus (same as Python / German helper).
     bool vocoder_stress = true;
+    /// Expand ASCII ``\\b\\d+\\b`` and ``\\b\\d+-\\d+\\b`` to Russian cardinal words before G2P.
+    bool expand_cardinal_digits = true;
   };
 
   explicit RussianRuleG2p(std::filesystem::path dict_tsv);
@@ -40,6 +42,8 @@ class RussianRuleG2p : public RuleBasedG2p {
 
   std::string lookup_or_rules(const std::string& raw_word) const;
   std::string finalize_ipa(std::string ipa) const;
+  std::string text_to_ipa_no_expand(const std::string& text,
+                                    std::vector<G2pWordLog>* per_word_log) const;
 };
 
 /// True for ``ru``, ``ru-RU``, ``russian`` (case-insensitive).

@@ -176,4 +176,81 @@ std::optional<std::pair<int, int>> utf8_find_token_codepoints(const std::string&
   return std::nullopt;
 }
 
+bool codepoint_is_unicode_word_neighbor_for_digits(char32_t c) {
+  if (c == U'_' || (c >= U'0' && c <= U'9')) {
+    return true;
+  }
+  if ((c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z')) {
+    return true;
+  }
+  if (c < 0x80u) {
+    return false;
+  }
+  if (c >= U'\u00AA' && c <= U'\u00FF' && c != U'\u00D7' && c != U'\u00F7') {
+    return true;
+  }
+  if (c >= U'\u0100' && c <= U'\u024F') {
+    return true;
+  }
+  if (c >= U'\u0400' && c <= U'\u04FF') {
+    return true;
+  }
+  if (c >= U'\u0500' && c <= U'\u052F') {
+    return true;
+  }
+  if (c >= U'\u2DE0' && c <= U'\u2DFF') {
+    return true;
+  }
+  if (c >= U'\u3040' && c <= U'\u30FF') {
+    return true;
+  }
+  if (c >= U'\u3400' && c <= U'\u9FFF') {
+    return true;
+  }
+  if (c >= U'\uAC00' && c <= U'\uD7AF') {
+    return true;
+  }
+  return false;
+}
+
+std::optional<char32_t> utf8_codepoint_before_index(const std::string& s, size_t byte_idx) {
+  if (byte_idx == 0 || byte_idx > s.size()) {
+    return std::nullopt;
+  }
+  size_t i = byte_idx;
+  do {
+    --i;
+  } while (i > 0 && (static_cast<unsigned char>(s[i]) & 0xC0) == 0x80);
+  char32_t cp = 0;
+  size_t adv = 0;
+  if (!utf8_decode_at(s, i, cp, adv)) {
+    return std::nullopt;
+  }
+  return cp;
+}
+
+std::optional<char32_t> utf8_codepoint_at_index(const std::string& s, size_t byte_idx) {
+  if (byte_idx >= s.size()) {
+    return std::nullopt;
+  }
+  char32_t cp = 0;
+  size_t adv = 0;
+  if (!utf8_decode_at(s, byte_idx, cp, adv)) {
+    return std::nullopt;
+  }
+  return cp;
+}
+
+bool digit_ascii_span_expandable_python_w(const std::string& text, size_t start_byte, size_t end_byte) {
+  const std::optional<char32_t> prev = utf8_codepoint_before_index(text, start_byte);
+  if (prev.has_value() && codepoint_is_unicode_word_neighbor_for_digits(*prev)) {
+    return false;
+  }
+  const std::optional<char32_t> next = utf8_codepoint_at_index(text, end_byte);
+  if (next.has_value() && codepoint_is_unicode_word_neighbor_for_digits(*next)) {
+    return false;
+  }
+  return true;
+}
+
 }  // namespace moonshine_g2p

@@ -28,12 +28,13 @@ struct SpanishDialect {
 /// Rule-based Spanish G2P (mirrors ``spanish_rule_g2p.py``).
 class SpanishRuleG2p : public RuleBasedG2p {
  public:
-  SpanishRuleG2p(SpanishDialect dialect, bool with_stress);
+  SpanishRuleG2p(SpanishDialect dialect, bool with_stress, bool expand_cardinal_digits = true);
 
   static std::vector<std::string> dialect_ids();
 
   const SpanishDialect& dialect() const { return dialect_; }
   bool with_stress() const { return with_stress_; }
+  bool expand_cardinal_digits() const { return expand_cardinal_digits_; }
 
   /// Single surface word (no spaces); punctuation should be stripped by the caller.
   std::string word_to_ipa(const std::string& word) const;
@@ -44,6 +45,10 @@ class SpanishRuleG2p : public RuleBasedG2p {
  private:
   SpanishDialect dialect_;
   bool with_stress_;
+  bool expand_cardinal_digits_{true};
+
+  std::string text_to_ipa_no_expand(const std::string& text,
+                                    std::vector<G2pWordLog>* per_word_log) const;
 };
 
 /// Sorted CLI ids (same set as Python ``dialect_ids()``).
@@ -55,13 +60,14 @@ SpanishDialect spanish_dialect_from_cli_id(const std::string& cli_id,
 
 /// One word → IPA (letters outside Spanish set stripped; punctuation should be handled by caller).
 std::string spanish_word_to_ipa(const std::string& word, const SpanishDialect& dialect,
-                                bool with_stress = true);
+                                bool with_stress = true, bool expand_cardinal_digits = true);
 
 /// Tokenize like Python ``text_to_ipa`` (Spanish letters + digits; collapse spaces).
 /// If *per_word_log* is non-null, appends one entry per Spanish word span (rule-based path).
 std::string spanish_text_to_ipa(const std::string& text, const SpanishDialect& dialect,
                                 bool with_stress = true,
-                                std::vector<G2pWordLog>* per_word_log = nullptr);
+                                std::vector<G2pWordLog>* per_word_log = nullptr,
+                                bool expand_cardinal_digits = true);
 
 } // namespace moonshine_g2p
 

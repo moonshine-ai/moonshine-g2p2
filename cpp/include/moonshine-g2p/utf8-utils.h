@@ -56,6 +56,15 @@ std::optional<std::pair<int, int>> utf8_find_token_codepoints(const std::string&
                                                               const std::string& token,
                                                               int start_cp);
 
+/// Rough Python ``\\w`` neighbor for ``re`` digit spans: ASCII alnum + underscore + major script blocks.
+bool codepoint_is_unicode_word_neighbor_for_digits(char32_t cp);
+
+std::optional<char32_t> utf8_codepoint_before_index(const std::string& s, size_t byte_idx);
+std::optional<char32_t> utf8_codepoint_at_index(const std::string& s, size_t byte_idx);
+
+/// True if the ASCII digit substring ``text[start_byte:end_byte]`` should expand like Python ``\\b\\d+\\b``.
+bool digit_ascii_span_expandable_python_w(const std::string& text, size_t start_byte, size_t end_byte);
+
 }  // namespace moonshine_g2p
 
 #endif  // MOONSHINE_G2P_UTF8_UTILS_H

@@ -19,6 +19,8 @@ class GermanRuleG2p : public RuleBasedG2p {
     bool with_stress = true;
     /// When true (default), move ˈ/ˌ before the syllable nucleus (vocoder-style).
     bool vocoder_stress = true;
+    /// Expand ``\\b\\d+\\b`` and year-style ``\\b\\d+-\\d+\\b`` to German cardinal words before G2P.
+    bool expand_cardinal_digits = true;
   };
 
   /// Load ``word<TAB>IPA`` TSV; throws ``std::runtime_error`` if the file is missing/unreadable.
@@ -46,6 +48,8 @@ class GermanRuleG2p : public RuleBasedG2p {
 
   std::string lookup_or_rules(const std::string& raw_word) const;
   std::string finalize_ipa(std::string ipa) const;
+  std::string text_to_ipa_no_expand(const std::string& text,
+                                    std::vector<G2pWordLog>* per_word_log) const;
 };
 
 /// True for ``de``, ``de-DE``, ``de_de``, ``german`` (case-insensitive).

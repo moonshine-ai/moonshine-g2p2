@@ -46,6 +46,27 @@ void check_wiki_parity(const std::filesystem::path& wiki, const char* dialect_cl
 
 }  // namespace
 
+TEST_CASE("spanish: En 1891 matches Python when python3 exists") {
+  const auto repo = r::repo_root_from_tests_cpp(__FILE__);
+  if (!python_spanish_import_ok()) {
+    return;
+  }
+  const auto tick = std::chrono::steady_clock::now().time_since_epoch().count();
+  const std::filesystem::path tmp =
+      std::filesystem::temp_directory_path() / ("es_g2p_digits_" + std::to_string(tick) + ".txt");
+  {
+    std::ofstream o(tmp, std::ios::binary);
+    o << "En 1891";
+  }
+  const std::vector<std::string> py =
+      r::python_ref_first_lines(repo, "spanish_g2p_ref.py", tmp, 1, {"--dialect", "es-MX"});
+  std::error_code ec;
+  std::filesystem::remove(tmp, ec);
+  REQUIRE(py.size() == 1);
+  const auto dialect = moonshine_g2p::spanish_dialect_from_cli_id("es-MX");
+  CHECK(moonshine_g2p::spanish_text_to_ipa("En 1891", dialect) == py[0]);
+}
+
 TEST_CASE("spanish: dialect ids include es-MX and es-ES") {
   const auto ids = moonshine_g2p::spanish_dialect_cli_ids();
   CHECK(std::find(ids.begin(), ids.end(), "es-MX") != ids.end());

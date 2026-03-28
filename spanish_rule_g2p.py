@@ -22,6 +22,10 @@ Limitations (intentionally documented):
 Primary stress is written immediately **before the stressed vowel** (after syllable onsets), similar
 to eSpeak NG. Optional *narrow_intervocalic_obstruents* maps intervocalic /b d ɡ/ to **[β ð ɣ]**.
 
+Digit-only tokens (and ``1933-1945``-style ranges) expand to Spanish cardinals via
+:mod:`spanish_numbers` before G2P (up to 999_999); disable with ``expand_cardinal_digits=False``
+or CLI ``--no-expand-digits``.
+
 CLI: after the rule-based IPA line, a second line from eSpeak NG is printed by default
 (``--no-espeak`` to disable), using the same stack as ``oov/infer.py`` / ``heteronym.espeak_heteronyms``.
 """
@@ -35,9 +39,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Iterable, Mapping
 
+from spanish_numbers import expand_cardinal_digits_to_spanish_words, expand_digit_tokens_in_text
+
 # Default eSpeak NG voice for Spanish (CLI reference line); override with ``--espeak-voice``.
 # ``es-mx`` is ideal for Mexico when installed; ``es-419`` is Latin American and more often present.
 _DEFAULT_ESPEAK_VOICE = "es-419"
+
+# When ``expand_cardinal_digits`` is off: pass digit-only tokens through unchanged.
+_DIGIT_PASS_THROUGH_RE = re.compile(r"^[0-9]+$")
 
 
 def espeak_ng_ipa_line(text: str, *, voice: str = _DEFAULT_ESPEAK_VOICE) -> str | None:
@@ -848,18 +857,47 @@ def _letters_to_ipa_no_stress(
     return _apply_nasal_assimilation(ipa, dialect)
 
 
-def word_to_ipa(word: str, dialect: SpanishDialect, *, with_stress: bool = True) -> str:
+def word_to_ipa(
+    word: str,
+    dialect: SpanishDialect,
+    *,
+    with_stress: bool = True,
+    expand_cardinal_digits: bool = True,
+    word_exceptions: Mapping[str, str] | None = None,
+) -> str:
     """
     Convert a single Spanish word (no spaces) to broad IPA using *dialect*.
 
     Unknown non-letters are dropped from the grapheme pass but may affect boundaries.
+
+    Pure digit strings expand via :func:`spanish_numbers.expand_cardinal_digits_to_spanish_words`
+    when *expand_cardinal_digits* is True.
     """
     if not word:
         return ""
     wraw = word.strip()
+
+    if expand_cardinal_digits and wraw.isdigit():
+        phrase = expand_cardinal_digits_to_spanish_words(wraw)
+        if phrase != wraw:
+            return text_to_ipa(
+                phrase,
+                dialect,
+                with_stress=with_stress,
+                word_exceptions=word_exceptions,
+                expand_cardinal_digits=False,
+            )
+        return wraw
+
+    if not expand_cardinal_digits and _DIGIT_PASS_THROUGH_RE.fullmatch(wraw):
+        return wraw
+
     wkey = _strip_accents(wraw.lower())
-    if wkey in _X_EXCEPTIONS and dialect.id.startswith("es"):
-        return _postprocess_lexical_ipa(_X_EXCEPTIONS[wkey], dialect, with_stress=with_stress)
+    exc_map = dict(_X_EXCEPTIONS)
+    if word_exceptions:
+        exc_map.update({k.lower(): v for k, v in word_exceptions.items()})
+    if wkey in exc_map and dialect.id.startswith("es"):
+        return _postprocess_lexical_ipa(exc_map[wkey], dialect, with_stress=with_stress)
 
     letters = re.sub(r"[^a-záéíóúüñA-ZÁÉÍÓÚÜÑ]", "", wraw)
     if not letters:
@@ -891,6 +929,7 @@ def text_to_ipa(
     *,
     with_stress: bool = True,
     word_exceptions: Mapping[str, str] | None = None,
+    expand_cardinal_digits: bool = True,
 ) -> str:
     """
     Tokenize *text* into words (Unicode letters + Spanish accents) and map each word with
@@ -898,6 +937,8 @@ def text_to_ipa(
     (whitespace collapsed to single spaces between words for readability).
     """
     dialect = dialect or mexican_spanish_dialect()
+    if expand_cardinal_digits:
+        text = expand_digit_tokens_in_text(text)
     exc = dict(_X_EXCEPTIONS)
     if word_exceptions:
         exc.update({k.lower(): v for k, v in word_exceptions.items()})
@@ -906,7 +947,13 @@ def text_to_ipa(
         k = _strip_accents(w.lower())
         if k in exc:
             return _postprocess_lexical_ipa(exc[k], dialect, with_stress=with_stress)
-        return word_to_ipa(w, dialect, with_stress=with_stress)
+        return word_to_ipa(
+            w,
+            dialect,
+            with_stress=with_stress,
+            expand_cardinal_digits=False,
+            word_exceptions=word_exceptions,
+        )
 
     parts: list[str] = []
     for m in _TOKEN_RE.finditer(text):
@@ -934,6 +981,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--no-stress", action="store_true", help="Omit primary stress marks ˈ.")
     p.add_argument("--stdin", action="store_true", help="Read full text from stdin (ignores positional text).")
+    p.add_argument(
+        "--no-expand-digits",
+        action="store_true",
+        help="Leave digit sequences as digits (no spoken Spanish cardinal expansion).",
+    )
     p.add_argument(
         "--no-espeak",
         action="store_true",
@@ -966,10 +1018,12 @@ def main(argv: Iterable[str] | None = None) -> None:
         args.dialect,
         narrow_intervocalic_obstruents=not args.broad_phonemes,
     )
-    print(text_to_ipa(raw, dialect, with_stress=not args.no_stress))
+    expand_digits = not args.no_expand_digits
+    es_in = expand_digit_tokens_in_text(raw) if expand_digits else raw
+    print(text_to_ipa(raw, dialect, with_stress=not args.no_stress, expand_cardinal_digits=expand_digits))
     if not args.no_espeak:
         voice = args.espeak_voice or default_espeak_voice_for_dialect(args.dialect)
-        espeak_line = espeak_ng_ipa_line(raw, voice=voice)
+        espeak_line = espeak_ng_ipa_line(es_in, voice=voice)
         if espeak_line is not None:
             print(f"{espeak_line} (espeak-ng)")
 

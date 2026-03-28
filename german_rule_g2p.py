@@ -20,6 +20,10 @@ By default, ˈ / ˌ are **shifted to sit before the syllable nucleus** (vocoder-
 Pass ``--syllable-initial-stress`` to keep dictionary-style marks at the first segment of the
 stressed syllable (strict IPA syllable edge).
 
+Digit-only tokens (and ``1933-1945``-style ranges) expand to German cardinals via
+:mod:`german_numbers` before G2P (up to 999_999); disable with ``expand_cardinal_digits=False``
+or CLI ``--no-expand-digits``.
+
 CLI: prints rule/lexicon IPA, then an eSpeak NG reference line (``--no-espeak`` to disable),
 same stack as ``spanish_rule_g2p`` / ``heteronym.espeak_heteronyms``.
 """
@@ -32,10 +36,15 @@ import unicodedata
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 
+from german_numbers import expand_cardinal_digits_to_german_words, expand_digit_tokens_in_text
+
 _DEFAULT_ESPEAK_VOICE = "de"
 
 _REPO_ROOT = Path(__file__).resolve().parent
 _DEFAULT_DICT_PATH = _REPO_ROOT / "models" / "de" / "dict.tsv"
+
+# When ``expand_cardinal_digits`` is off: pass digit / simple year-range tokens through unchanged.
+_DIGIT_PASS_THROUGH_RE = re.compile(r"^[0-9]+(?:-[0-9]+)*$")
 
 _LEXICON_CACHE: dict[str, str] | None = None
 _LEXICON_PATH: Path | None = None
@@ -703,16 +712,38 @@ def word_to_ipa(
     dict_path: Path | None = None,
     with_stress: bool = True,
     vocoder_stress: bool = True,
+    expand_cardinal_digits: bool = True,
 ) -> str:
     """
     Single-token G2P: lexicon lookup (normalized key), else rules fallback.
 
     If *vocoder_stress* is True (default), :func:`normalize_ipa_stress_for_vocoder` is applied
     whenever stress marks are kept.
+
+    Pure digit strings expand via :func:`german_numbers.expand_cardinal_digits_to_german_words`
+    when *expand_cardinal_digits* is True (ranges like ``1933-1945`` are expanded in
+    :func:`text_to_ipa` before tokenization).
     """
     if not word or not word.strip():
         return ""
     raw = word.strip()
+
+    if expand_cardinal_digits and raw.isdigit():
+        phrase = expand_cardinal_digits_to_german_words(raw)
+        if phrase != raw:
+            return text_to_ipa(
+                phrase,
+                lexicon=lexicon,
+                dict_path=dict_path,
+                with_stress=with_stress,
+                vocoder_stress=vocoder_stress,
+                expand_cardinal_digits=False,
+            )
+        return raw
+
+    if not expand_cardinal_digits and _DIGIT_PASS_THROUGH_RE.fullmatch(raw):
+        return raw
+
     letters_only = normalize_lookup_key(raw)
     if not letters_only:
         return ""
@@ -746,8 +777,11 @@ def text_to_ipa(
     dict_path: Path | None = None,
     with_stress: bool = True,
     vocoder_stress: bool = True,
+    expand_cardinal_digits: bool = True,
 ) -> str:
     """Tokenize and G2P each word; preserve punctuation and collapse spaces."""
+    if expand_cardinal_digits:
+        text = expand_digit_tokens_in_text(text)
     parts: list[str] = []
     for m in _TOKEN_RE.finditer(text):
         tok = m.group(0)
@@ -761,6 +795,7 @@ def text_to_ipa(
                     dict_path=dict_path,
                     with_stress=with_stress,
                     vocoder_stress=vocoder_stress,
+                    expand_cardinal_digits=False,
                 )
             )
         else:
@@ -790,6 +825,11 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--stdin", action="store_true", help="Read full text from stdin.")
     p.add_argument(
+        "--no-expand-digits",
+        action="store_true",
+        help="Leave digit sequences as digits (no spoken German cardinal expansion).",
+    )
+    p.add_argument(
         "--no-espeak",
         action="store_true",
         help="Do not print eSpeak NG reference line.",
@@ -813,6 +853,8 @@ def main(argv: Iterable[str] | None = None) -> None:
     else:
         raw = " ".join(args.text)
     lex = load_german_lexicon(args.dict) if args.dict is not None else None
+    expand_digits = not args.no_expand_digits
+    es_in = expand_digit_tokens_in_text(raw) if expand_digits else raw
     print(
         text_to_ipa(
             raw,
@@ -820,10 +862,11 @@ def main(argv: Iterable[str] | None = None) -> None:
             dict_path=args.dict,
             with_stress=not args.no_stress,
             vocoder_stress=not args.syllable_initial_stress,
+            expand_cardinal_digits=expand_digits,
         )
     )
     if not args.no_espeak:
-        es = espeak_ng_ipa_line(raw, voice=args.espeak_voice)
+        es = espeak_ng_ipa_line(es_in, voice=args.espeak_voice)
         if es is not None:
             print(f"{es} (espeak-ng)")
 

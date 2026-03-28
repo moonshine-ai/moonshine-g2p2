@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <fstream>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -783,6 +784,187 @@ void load_german_lexicon_file(const std::filesystem::path& path,
 
 }  // namespace
 
+namespace {
+
+bool g2p_all_ascii_digits(std::string_view s) {
+  if (s.empty()) {
+    return false;
+  }
+  for (char c : s) {
+    if (c < '0' || c > '9') {
+      return false;
+    }
+  }
+  return true;
+}
+
+std::string german_under_100_word(int n) {
+  static const char* kDigitStandalone[] = {"null", "eins", "zwei", "drei", "vier", "fünf", "sechs",
+                                           "sieben", "acht", "neun"};
+  static const char* kUnitCompound[] = {"", "ein", "zwei", "drei", "vier", "fünf", "sechs",
+                                        "sieben", "acht", "neun"};
+  static const char* kTens[] = {"", "", "zwanzig", "dreißig", "vierzig", "fünfzig",
+                                "sechzig", "siebzig", "achtzig", "neunzig"};
+  if (n < 0 || n >= 100) {
+    throw std::out_of_range("german_under_100_word");
+  }
+  if (n < 10) {
+    return kDigitStandalone[n];
+  }
+  if (n < 20) {
+    static const char* teens[] = {"zehn",    "elf",      "zwölf",    "dreizehn", "vierzehn",
+                                  "fünfzehn", "sechzehn", "siebzehn", "achtzehn", "neunzehn"};
+    return teens[n - 10];
+  }
+  const int t = n / 10;
+  const int u = n % 10;
+  const char* tw = kTens[t];
+  if (u == 0) {
+    return tw;
+  }
+  return std::string(kUnitCompound[u]) + "und" + tw;
+}
+
+std::string german_hundred_head(int h) {
+  if (h == 1) {
+    return "hundert";
+  }
+  if (h < 2 || h > 9) {
+    throw std::out_of_range("german_hundred_head");
+  }
+  static const char* stems[] = {"zwei", "drei", "vier", "fünf", "sechs", "sieben", "acht", "neun"};
+  return std::string(stems[h - 2]) + "hundert";
+}
+
+void append_german_tokens_1_999(int n, std::vector<std::string>& out) {
+  if (n < 1 || n > 999) {
+    throw std::out_of_range("append_german_tokens_1_999");
+  }
+  if (n < 100) {
+    out.push_back(german_under_100_word(n));
+    return;
+  }
+  const int h = n / 100;
+  const int r = n % 100;
+  out.push_back(german_hundred_head(h));
+  if (r != 0) {
+    out.push_back(german_under_100_word(r));
+  }
+}
+
+void append_german_tokens_thousands(int q, std::vector<std::string>& out) {
+  if (q < 1 || q > 999) {
+    throw std::out_of_range("append_german_tokens_thousands");
+  }
+  if (q == 1) {
+    out.emplace_back("eintausend");
+    return;
+  }
+  append_german_tokens_1_999(q, out);
+  out.emplace_back("tausend");
+}
+
+void append_german_below_1_000_000(int n, std::vector<std::string>& out) {
+  if (n < 0 || n >= 1'000'000) {
+    throw std::out_of_range("append_german_below_1_000_000");
+  }
+  if (n < 1000) {
+    append_german_tokens_1_999(n, out);
+    return;
+  }
+  const int q = n / 1000;
+  const int r = n % 1000;
+  append_german_tokens_thousands(q, out);
+  if (r != 0) {
+    append_german_tokens_1_999(r, out);
+  }
+}
+
+std::string expand_cardinal_digits_to_german_words(std::string_view s) {
+  if (!g2p_all_ascii_digits(s)) {
+    return std::string(s);
+  }
+  if (s.size() > 1 && s[0] == '0') {
+    static const char* dw[] = {"null", "eins", "zwei", "drei", "vier", "fünf", "sechs",
+                               "sieben", "acht", "neun"};
+    std::string o;
+    for (size_t i = 0; i < s.size(); ++i) {
+      if (i > 0) {
+        o.push_back(' ');
+      }
+      o += dw[static_cast<size_t>(s[i] - '0')];
+    }
+    return o;
+  }
+  long long n = 0;
+  for (char c : s) {
+    n = n * 10 + (c - '0');
+  }
+  if (n > 999'999) {
+    return std::string(s);
+  }
+  if (n == 0) {
+    return "null";
+  }
+  std::vector<std::string> parts;
+  append_german_below_1_000_000(static_cast<int>(n), parts);
+  std::string o;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    if (i > 0) {
+      o.push_back(' ');
+    }
+    o += parts[i];
+  }
+  return o;
+}
+
+std::string expand_german_digit_tokens_in_text(std::string text) {
+  static const std::regex range_re(R"(\b(\d+)-(\d+)\b)", std::regex::ECMAScript);
+  static const std::regex dig_re(R"(\b\d+\b)", std::regex::ECMAScript);
+  std::string out;
+  std::sregex_iterator it(text.begin(), text.end(), range_re);
+  std::sregex_iterator end;
+  size_t pos = 0;
+  for (; it != end; ++it) {
+    const std::smatch& m = *it;
+    out.append(text, pos, static_cast<size_t>(m.position() - static_cast<long>(pos)));
+    const size_t g1s = static_cast<size_t>(m.position(1));
+    const size_t g1e = g1s + m.str(1).size();
+    const size_t g2s = static_cast<size_t>(m.position(2));
+    const size_t g2e = g2s + m.str(2).size();
+    if (digit_ascii_span_expandable_python_w(text, g1s, g1e) &&
+        digit_ascii_span_expandable_python_w(text, g2s, g2e)) {
+      out += expand_cardinal_digits_to_german_words(m.str(1));
+      out += " bis ";
+      out += expand_cardinal_digits_to_german_words(m.str(2));
+    } else {
+      out += m.str();
+    }
+    pos = static_cast<size_t>(m.position() + static_cast<long>(m.length()));
+  }
+  out.append(text, pos, std::string::npos);
+  text = std::move(out);
+  out.clear();
+  pos = 0;
+  std::sregex_iterator it2(text.begin(), text.end(), dig_re);
+  for (; it2 != end; ++it2) {
+    const std::smatch& m = *it2;
+    out.append(text, pos, static_cast<size_t>(m.position() - static_cast<long>(pos)));
+    const size_t gs = static_cast<size_t>(m.position());
+    const size_t ge = gs + m.str().size();
+    if (digit_ascii_span_expandable_python_w(text, gs, ge)) {
+      out += expand_cardinal_digits_to_german_words(m.str());
+    } else {
+      out += m.str();
+    }
+    pos = static_cast<size_t>(m.position() + static_cast<long>(m.length()));
+  }
+  out.append(text, pos, std::string::npos);
+  return out;
+}
+
+}  // namespace
+
 bool ipa_at_stress_mark(const std::string& ipa, size_t j) {
   if (ipa.size() - j >= kPrimaryStressUtf8.size() &&
       ipa.compare(j, kPrimaryStressUtf8.size(), kPrimaryStressUtf8) == 0) {
@@ -927,10 +1109,24 @@ std::string GermanRuleG2p::word_to_ipa(const std::string& word) const {
   if (wraw.empty()) {
     return "";
   }
+  if (options_.expand_cardinal_digits && g2p_all_ascii_digits(wraw)) {
+    const std::string phrase = expand_cardinal_digits_to_german_words(wraw);
+    if (phrase != wraw) {
+      return text_to_ipa_no_expand(phrase, nullptr);
+    }
+    return wraw;
+  }
+  if (!options_.expand_cardinal_digits) {
+    static const std::regex dig_pass(R"(^[0-9]+(?:-[0-9]+)*$)", std::regex::ECMAScript);
+    if (std::regex_match(wraw, dig_pass)) {
+      return wraw;
+    }
+  }
   return lookup_or_rules(wraw);
 }
 
-std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
+std::string GermanRuleG2p::text_to_ipa_no_expand(const std::string& text,
+                                                 std::vector<G2pWordLog>* per_word_log) const {
   std::string out;
   size_t pos = 0;
   const size_t n = text.size();
@@ -961,7 +1157,7 @@ std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>
       }
       const std::string tok = text.substr(start, pos - start);
       const std::string k = normalize_lookup_key_utf8(tok);
-      std::string wipa = lookup_or_rules(tok);
+      std::string wipa = word_to_ipa(tok);
       if (per_word_log != nullptr) {
         per_word_log->push_back(
             G2pWordLog{tok, k, G2pWordPath::kRuleBasedG2p, std::move(wipa)});
@@ -1002,6 +1198,13 @@ std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>
     collapsed.pop_back();
   }
   return collapsed;
+}
+
+std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
+  if (options_.expand_cardinal_digits) {
+    text = expand_german_digit_tokens_in_text(std::move(text));
+  }
+  return text_to_ipa_no_expand(text, per_word_log);
 }
 
 bool dialect_resolves_to_german_rules(std::string_view dialect_id) {
