@@ -3,6 +3,7 @@
 #include "moonshine_g2p/g2p_word_log.hpp"
 #include "moonshine_g2p/lang-specific/dutch.hpp"
 #include "moonshine_g2p/lang-specific/italian.hpp"
+#include "moonshine_g2p/lang-specific/russian.hpp"
 #include "moonshine_g2p/lang-specific/portuguese.hpp"
 #include "moonshine_g2p/lang-specific/french.hpp"
 #include "moonshine_g2p/lang-specific/german.hpp"
@@ -52,6 +53,10 @@ struct MoonshineG2POptions {
   bool italian_with_stress = true;
   bool italian_vocoder_stress = true;
   bool italian_expand_cardinal_digits = true;
+  /// Russian rule G2P (``ru``, ``ru-RU``, ``russian``): ``<model-root>/../data/ru/dict.tsv`` or ``<model-root>/ru/dict.tsv``.
+  std::optional<std::filesystem::path> russian_dict_path;
+  bool russian_with_stress = true;
+  bool russian_vocoder_stress = true;
   /// Portuguese rule G2P (``pt_br``, ``pt-br``, ``pt_pt``, ``portugal``, …): ``<model-root>/../data/pt_br/dict.tsv`` or ``pt_pt``.
   std::optional<std::filesystem::path> portuguese_dict_path;
   bool portuguese_with_stress = true;
@@ -66,7 +71,7 @@ struct MoonshineG2POptions {
 };
 
 /// Single entry point: *dialect_id* is a tag such as ``es-AR``, ``de``, ``de-DE``, or ``en_us``.
-/// Rule-based engines are used when implemented (Spanish, German, French, Dutch, Italian, Portuguese); otherwise ONNX models under
+/// Rule-based engines are used when implemented (Spanish, German, French, Dutch, Italian, Russian, Portuguese); otherwise ONNX models under
 /// ``model_root`` / ``<dialect_with_underscores>`` / ``g2p-config.json`` are loaded.
 class MoonshineG2P {
  public:
@@ -86,6 +91,7 @@ class MoonshineG2P {
   [[nodiscard]] bool uses_french_rules() const { return french_.has_value(); }
   [[nodiscard]] bool uses_dutch_rules() const { return dutch_.has_value(); }
   [[nodiscard]] bool uses_italian_rules() const { return italian_.has_value(); }
+  [[nodiscard]] bool uses_russian_rules() const { return russian_.has_value(); }
   [[nodiscard]] bool uses_portuguese_rules() const { return portuguese_.has_value(); }
   [[nodiscard]] bool uses_onnx() const { return onnx_ != nullptr; }
 
@@ -101,6 +107,7 @@ class MoonshineG2P {
   std::optional<FrenchRuleG2p> french_;
   std::optional<DutchRuleG2p> dutch_;
   std::optional<ItalianRuleG2p> italian_;
+  std::optional<RussianRuleG2p> russian_;
   std::optional<PortugueseRuleG2p> portuguese_;
   std::unique_ptr<MoonshineOnnxG2p> onnx_;
 };

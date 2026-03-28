@@ -440,7 +440,7 @@ bool ipa_starts_with_nucleus(std::string_view rest) {
   static const std::string_view kNuc[] = {
       "aɪ̯", "aʊ̯", "ɔʏ̯", "ɛɪ̯", "iː", "eː", "aː", "oː", "uː", "yː", "øː",
       "ŋ̩",  "n̩",  "m̩",  "l̩",  "r̩",  "ə",  "ɛ",  "ɜ",  "ɪ",  "ʊ",  "ɐ̯",
-      "ɐ",  "ø",  "œ",  "ʏ",  "y",  "ɔ",  "ɑ",  "æ",  "a",  "i",  "e",  "o",  "u",
+      "ɐ",  "ɨ",  "ɵ",  "ø",  "œ",  "ʏ",  "y",  "ɔ",  "ɑ",  "æ",  "a",  "i",  "e",  "o",  "u",
   };
   for (std::string_view p : kNuc) {
     if (rest.size() >= p.size() && rest.substr(0, p.size()) == p) {

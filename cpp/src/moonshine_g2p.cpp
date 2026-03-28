@@ -229,6 +229,20 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
     return;
   }
 
+  if (dialect_resolves_to_russian_rules(trimmed)) {
+    const std::filesystem::path rdict =
+        options.russian_dict_path.value_or(resolve_russian_dict_path(options.model_root));
+    if (!std::filesystem::is_regular_file(rdict)) {
+      throw std::runtime_error(
+          "Russian G2P: lexicon not found at " + rdict.generic_string() +
+          " (set MoonshineG2POptions::russian_dict_path)");
+    }
+    russian_.emplace(rdict, RussianRuleG2p::Options{.with_stress = options.russian_with_stress,
+                                                      .vocoder_stress = options.russian_vocoder_stress});
+    dialect_id_ = "ru-RU";
+    return;
+  }
+
   const bool want_pt_br = dialect_resolves_to_brazilian_portuguese_rules(trimmed);
   const bool want_pt_pt = dialect_resolves_to_portugal_rules(trimmed);
   if (want_pt_br || want_pt_pt) {
@@ -281,6 +295,9 @@ std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWord
   }
   if (italian_.has_value()) {
     return italian_->text_to_ipa(std::string(text), per_word_log);
+  }
+  if (russian_.has_value()) {
+    return russian_->text_to_ipa(std::string(text), per_word_log);
   }
   if (portuguese_.has_value()) {
     return portuguese_->text_to_ipa(std::string(text), per_word_log);
