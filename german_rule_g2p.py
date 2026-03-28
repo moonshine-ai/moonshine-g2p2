@@ -327,6 +327,8 @@ _IPA_NUCLEUS_PREFIXES: tuple[str, ...] = tuple(
             "ʊ",
             "ɐ̯",
             "ɐ",
+            "ɨ",
+            "ɵ",
             "ø",
             "œ",
             "ʏ",
