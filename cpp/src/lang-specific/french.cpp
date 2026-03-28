@@ -1,7 +1,7 @@
 #include "moonshine-g2p/lang-specific/french.h"
 #include "moonshine-g2p/lang-specific/french-compound-map.h"
 
-#include "lang-specific/french-internal.h"
+#include "moonshine-g2p/lang-specific/french-internal.h"
 #include "moonshine-g2p/g2p-word-log.h"
 #include "moonshine-g2p/ipa-symbols.h"
 #include "moonshine-g2p/utf8-utils.h"

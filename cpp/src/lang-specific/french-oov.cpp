@@ -1,4 +1,4 @@
-#include "lang-specific/french-internal.h"
+#include "moonshine-g2p/lang-specific/french-internal.h"
 
 #include "moonshine-g2p/ipa-symbols.h"
 #include "moonshine-g2p/utf8-utils.h"
