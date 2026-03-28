@@ -1,10 +1,10 @@
-#include "moonshine_g2p/lang-specific/portuguese.hpp"
-#include "moonshine_g2p/lang-specific/portuguese_rules.hpp"
+#include "moonshine-g2p/lang-specific/portuguese.h"
+#include "moonshine-g2p/lang-specific/portuguese-rules.h"
 
-#include "moonshine_g2p/g2p_word_log.hpp"
-#include "moonshine_g2p/ipa_symbols.hpp"
-#include "moonshine_g2p/lang-specific/german.hpp"
-#include "moonshine_g2p/utf8_utils.hpp"
+#include "moonshine-g2p/g2p-word-log.h"
+#include "moonshine-g2p/ipa-symbols.h"
+#include "moonshine-g2p/lang-specific/german.h"
+#include "moonshine-g2p/utf8-utils.h"
 
 #include <algorithm>
 #include <cctype>

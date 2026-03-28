@@ -1,10 +1,10 @@
-#include "moonshine_g2p/lang-specific/french.hpp"
-#include "moonshine_g2p/lang-specific/french_compound_map.hpp"
+#include "moonshine-g2p/lang-specific/french.h"
+#include "moonshine-g2p/lang-specific/french-compound-map.h"
 
-#include "lang-specific/french_internal.hpp"
-#include "moonshine_g2p/g2p_word_log.hpp"
-#include "moonshine_g2p/ipa_symbols.hpp"
-#include "moonshine_g2p/utf8_utils.hpp"
+#include "lang-specific/french-internal.h"
+#include "moonshine-g2p/g2p-word-log.h"
+#include "moonshine-g2p/ipa-symbols.h"
+#include "moonshine-g2p/utf8-utils.h"
 
 #include <algorithm>
 #include <array>

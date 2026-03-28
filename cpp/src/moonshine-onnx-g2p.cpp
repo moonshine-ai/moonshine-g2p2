@@ -1,0 +1,142 @@
+#include "moonshine-g2p/moonshine-onnx-g2p.h"
+
+#include "moonshine-g2p/onnx-g2p-models.h"
+#include "moonshine-g2p/text-normalize.h"
+#include "moonshine-g2p/utf8-utils.h"
+
+#include <filesystem>
+#include <iostream>
+#include <sstream>
+#include <stdexcept>
+
+namespace moonshine_g2p {
+
+namespace {
+
+void append_log(std::vector<G2pWordLog> *out, G2pWordLog entry) {
+  if (out != nullptr) {
+    out->push_back(std::move(entry));
+  }
+}
+
+} // namespace
+
+MoonshineOnnxG2p::MoonshineOnnxG2p(
+    std::optional<std::filesystem::path> dict_path,
+    std::optional<std::filesystem::path> heteronym_onnx,
+    std::optional<std::filesystem::path> oov_onnx, bool use_cuda) {
+  if (heteronym_onnx && !std::filesystem::is_regular_file(*heteronym_onnx)) {
+    throw std::runtime_error(
+        "heteronym ONNX model required but file not found: " +
+        heteronym_onnx->generic_string());
+  }
+  if (oov_onnx && !std::filesystem::is_regular_file(*oov_onnx)) {
+    throw std::runtime_error("OOV ONNX model required but file not found: " +
+                             oov_onnx->generic_string());
+  }
+  if (dict_path) {
+    if (!std::filesystem::is_regular_file(*dict_path)) {
+      throw std::runtime_error("dictionary TSV not found at " +
+                               dict_path->generic_string());
+    }
+    dict_ = std::make_unique<CmudictTsv>(*dict_path);
+  }
+  if (heteronym_onnx) {
+    het_ = std::make_unique<OnnxHeteronymG2p>(env_, *heteronym_onnx, use_cuda);
+  }
+
+  if (oov_onnx) {
+    oov_ = std::make_unique<OnnxOovG2p>(env_, *oov_onnx, use_cuda);
+  }
+}
+
+MoonshineOnnxG2p::~MoonshineOnnxG2p() = default;
+
+std::string
+MoonshineOnnxG2p::text_to_ipa(std::string_view text,
+                              std::vector<G2pWordLog> *per_word_log) {
+  const std::string full_text(text);
+  std::vector<std::string> parts;
+  int pos = 0;
+
+  for (const auto &token : split_text_to_words(full_text)) {
+    std::optional<std::pair<int, int>> se =
+        utf8_find_token_codepoints(full_text, token, pos);
+    if (!se) {
+      se = utf8_find_token_codepoints(full_text, token, 0);
+    }
+    if (!se) {
+      append_log(
+          per_word_log,
+          G2pWordLog{token, "", G2pWordPath::kTokenNotLocatedInText, ""});
+      continue;
+    }
+    const int start = se->first;
+    const int end = se->second;
+    pos = end;
+
+    const std::string key = normalize_word_for_lookup(token);
+    if (key.empty()) {
+      append_log(per_word_log,
+                 G2pWordLog{token, "", G2pWordPath::kSkippedEmptyKey, ""});
+      continue;
+    }
+
+    const std::vector<std::string> *alts_ptr = nullptr;
+    if (dict_) {
+      alts_ptr = dict_->lookup(key);
+    }
+    if (!alts_ptr || alts_ptr->empty()) {
+      if (oov_) {
+        const std::vector<std::string> phones = oov_->predict_phonemes(key);
+        if (!phones.empty()) {
+          std::string chunk;
+          for (const auto &p : phones) {
+            chunk += p;
+          }
+          append_log(per_word_log,
+                     G2pWordLog{token, key, G2pWordPath::kOovModel, chunk});
+          parts.push_back(std::move(chunk));
+        } else {
+          append_log(
+              per_word_log,
+              G2pWordLog{token, key, G2pWordPath::kOovModelNoOutput, ""});
+        }
+      } else {
+        append_log(per_word_log,
+                   G2pWordLog{token, key, G2pWordPath::kUnknownNoOovModel, ""});
+      }
+      continue;
+    }
+    const std::vector<std::string> &alts = *alts_ptr;
+    if (alts.size() == 1) {
+      append_log(
+          per_word_log,
+          G2pWordLog{token, key, G2pWordPath::kDictUnambiguous, alts[0]});
+      parts.push_back(alts[0]);
+    } else if (het_) {
+      const std::string ipa =
+          het_->disambiguate_ipa(full_text, start, end, key, alts);
+      append_log(per_word_log,
+                 G2pWordLog{token, key, G2pWordPath::kDictHeteronym, ipa});
+      parts.push_back(std::move(ipa));
+    } else {
+      append_log(per_word_log,
+                 G2pWordLog{token, key,
+                            G2pWordPath::kDictFirstAlternativeNoHeteronymModel,
+                            alts[0]});
+      parts.push_back(alts[0]);
+    }
+  }
+
+  std::ostringstream out;
+  for (size_t i = 0; i < parts.size(); ++i) {
+    if (i > 0) {
+      out << ' ';
+    }
+    out << parts[i];
+  }
+  return out.str();
+}
+
+} // namespace moonshine_g2p

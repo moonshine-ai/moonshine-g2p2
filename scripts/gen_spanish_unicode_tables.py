@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate Unicode helper tables in cpp/src/lang-specific/spanish_unicode_tables.cpp."""
+"""Regenerate Unicode helper tables in cpp/src/lang-specific/spanish-unicode-tables.cpp."""
 from __future__ import annotations
 
 import re
@@ -7,7 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "cpp" / "src" / "lang-specific"
-CPP_PATH = OUT_DIR / "spanish_unicode_tables.cpp"
+CPP_PATH = OUT_DIR / "spanish-unicode-tables.cpp"
 
 
 def esc_cpp_utf8(s: str) -> str:
@@ -120,7 +120,7 @@ def main() -> None:
     space_lines = gen_space_bitmap()
 
     parts = [
-        '#include "moonshine_g2p/lang-specific/spanish_unicode_tables.hpp"',
+        '#include "moonshine-g2p/lang-specific/spanish-unicode-tables.h"',
         "",
         "namespace moonshine_g2p::spanish_unicode {",
         "",
