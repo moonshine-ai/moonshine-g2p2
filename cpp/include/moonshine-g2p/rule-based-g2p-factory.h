@@ -14,6 +14,7 @@ namespace moonshine_g2p {
 class RuleBasedG2p;
 
 enum class RuleBasedG2pKind {
+  English,
   Spanish,
   German,
   French,

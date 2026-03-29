@@ -48,6 +48,28 @@ def test_g2p_oov_matches_hand_rules_when_onnx_disabled():
     assert g.g2p(w) == english_oov_rules_ipa(w)
 
 
+def test_english_number_token_ipa():
+    from english_rule_g2p import english_number_token_ipa
+
+    assert english_number_token_ipa("42") == "fˈɔɹtiˌtˈu"
+    assert english_number_token_ipa("007") == "ˈzɪroʊˌˈzɪroʊˌˈsɛvən"
+    assert english_number_token_ipa("-1") == "nˈɛɡətɪvˌwˈʌn"
+    assert english_number_token_ipa("hello") is None
+    ipa = english_number_token_ipa("3.14")
+    assert ipa is not None and "ˈpɔɪnt" in ipa
+
+
+def test_g2p_numeric_uses_number_path():
+    from english_rule_g2p import EnglishLexiconRuleG2p, english_number_token_ipa, load_english_lexicon
+
+    tsv = _REPO / "models" / "en_us" / "dict_filtered_heteronyms.tsv"
+    if not tsv.is_file():
+        pytest.skip("dict TSV missing")
+    lex = load_english_lexicon(tsv)
+    g = EnglishLexiconRuleG2p(lexicon=lex, use_onnx_oov=False)
+    assert g.g2p("1234") == english_number_token_ipa("1234")
+
+
 def test_g2p_oov_onnx_when_model_present():
     from english_rule_g2p import EnglishLexiconRuleG2p, load_english_lexicon
     from moonshine_onnx_g2p import OnnxOovG2p

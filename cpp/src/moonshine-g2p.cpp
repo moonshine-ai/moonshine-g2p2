@@ -3,6 +3,7 @@
 #include "moonshine-g2p/rule-based-g2p-factory.h"
 #include "moonshine-g2p/rule-based-g2p.h"
 #include "moonshine-g2p/lang-specific/dutch.h"
+#include "moonshine-g2p/lang-specific/english.h"
 #include "moonshine-g2p/lang-specific/french.h"
 #include "moonshine-g2p/lang-specific/german.h"
 #include "moonshine-g2p/lang-specific/italian.h"
@@ -134,6 +135,9 @@ bool dialect_uses_rule_based_g2p(std::string_view dialect_id, const MoonshineG2P
   const std::string trimmed = trim_copy(dialect_id);
   if (trimmed.empty()) {
     return false;
+  }
+  if (dialect_resolves_to_english_rules(trimmed)) {
+    return true;
   }
   if (dialect_resolves_to_spanish_rules(trimmed, options.spanish_narrow_obstruents)) {
     return true;

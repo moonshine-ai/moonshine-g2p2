@@ -3,6 +3,7 @@
 #include "moonshine-g2p/moonshine-g2p-options.h"
 #include "moonshine-g2p/rule-based-g2p.h"
 #include "moonshine-g2p/lang-specific/dutch.h"
+#include "moonshine-g2p/lang-specific/english.h"
 #include "moonshine-g2p/lang-specific/french.h"
 #include "moonshine-g2p/lang-specific/german.h"
 #include "moonshine-g2p/lang-specific/italian.h"
@@ -12,6 +13,8 @@
 
 #include <cctype>
 #include <filesystem>
+#include <fstream>
+#include <nlohmann/json.hpp>
 #include <stdexcept>
 #include <utility>
 
@@ -79,6 +82,56 @@ std::string normalize_spanish_dialect_cli_key(std::string_view raw) {
     }
   }
   return s;
+}
+
+std::optional<RuleBasedG2pInstance> try_english(std::string_view trimmed,
+                                                 const MoonshineG2POptions& options) {
+  if (!dialect_resolves_to_english_rules(trimmed)) {
+    return std::nullopt;
+  }
+  const std::filesystem::path data_root = options.model_root / "en_us";
+  std::filesystem::path dict_tsv =
+      options.english_dict_path.value_or(data_root / "dict_filtered_heteronyms.tsv");
+  if (!options.english_dict_path && !std::filesystem::is_regular_file(dict_tsv)) {
+    dict_tsv = resolve_english_dict_path(options.model_root);
+  }
+  if (!std::filesystem::is_regular_file(dict_tsv)) {
+    throw std::runtime_error(
+        "English G2P: lexicon not found at " + dict_tsv.generic_string() +
+        " (set MoonshineG2POptions::english_dict_path)");
+  }
+  std::optional<std::filesystem::path> het_onnx;
+  std::optional<std::filesystem::path> oov_onnx;
+  const std::filesystem::path g2p_cfg = data_root / "g2p-config.json";
+  if (std::filesystem::is_regular_file(g2p_cfg)) {
+    std::ifstream cfg_in(g2p_cfg);
+    const nlohmann::json j = nlohmann::json::parse(cfg_in);
+    if (j.value("uses_heteronym_model", false)) {
+      het_onnx = data_root / "heteronym" / "model.onnx";
+    }
+    if (j.value("uses_oov_model", false)) {
+      oov_onnx = data_root / "oov" / "model.onnx";
+    }
+  }
+  if (options.heteronym_onnx_override) {
+    het_onnx = *options.heteronym_onnx_override;
+  }
+  if (options.oov_onnx_override) {
+    oov_onnx = *options.oov_onnx_override;
+  }
+  if (het_onnx && !std::filesystem::is_regular_file(*het_onnx)) {
+    het_onnx.reset();
+  }
+  if (oov_onnx && !std::filesystem::is_regular_file(*oov_onnx)) {
+    oov_onnx.reset();
+  }
+  const std::filesystem::path homograph_json = data_root / "heteronym" / "homograph_index.json";
+  RuleBasedG2pInstance out;
+  out.canonical_dialect_id = "en_us";
+  out.kind = RuleBasedG2pKind::English;
+  out.engine = std::make_unique<EnglishRuleG2p>(dict_tsv, homograph_json, het_onnx, oov_onnx,
+                                                options.use_cuda);
+  return out;
 }
 
 std::optional<RuleBasedG2pInstance> try_spanish(std::string_view trimmed,
@@ -243,6 +296,7 @@ std::optional<RuleBasedG2pInstance> try_portuguese(std::string_view trimmed,
 using TryFn = std::optional<RuleBasedG2pInstance> (*)(std::string_view, const MoonshineG2POptions&);
 
 const TryFn kTryChain[] = {
+    try_english,
     try_spanish,
     try_german,
     try_french,
@@ -270,6 +324,7 @@ std::optional<RuleBasedG2pInstance> create_rule_based_g2p(std::string_view diale
 
 std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> rule_based_g2p_dialect_catalog() {
   std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> out;
+  out.emplace_back(RuleBasedG2pKind::English, EnglishRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Spanish, SpanishRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::German, GermanRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::French, FrenchRuleG2p::dialect_ids());

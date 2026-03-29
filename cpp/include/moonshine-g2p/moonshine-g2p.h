@@ -26,8 +26,9 @@ bool dialect_uses_rule_based_g2p(std::string_view dialect_id,
                                                const MoonshineG2POptions& options = {});
 
 /// Single entry point: *dialect_id* is a tag such as ``es-AR``, ``de``, ``de-DE``, or ``en_us``.
-/// Rule-based engines are used when implemented (Spanish, German, French, Dutch, Italian, Russian, Portuguese); otherwise ONNX models under
-/// ``model_root`` / ``<dialect_with_underscores>`` / ``g2p-config.json`` are loaded.
+/// Rule-based engines are used when implemented (English, Spanish, German, French, Dutch, Italian,
+/// Russian, Portuguese); other dialects load ONNX models under ``model_root`` /
+/// ``<dialect_with_underscores>`` / ``g2p-config.json``.
 class MoonshineG2P {
  public:
   explicit MoonshineG2P(std::string dialect_id, MoonshineG2POptions options = {});
@@ -52,6 +53,7 @@ class MoonshineG2P {
   bool uses_portuguese_rules() const {
     return rule_backend_ == RuleBasedG2pKind::Portuguese;
   }
+  bool uses_english_rules() const { return rule_backend_ == RuleBasedG2pKind::English; }
   bool uses_onnx() const { return onnx_ != nullptr; }
 
   /// Canonical dialect id (e.g. ``es-AR`` for Spanish, or the normalized ONNX subdir form

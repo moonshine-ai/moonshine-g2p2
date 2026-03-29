@@ -24,6 +24,10 @@ const char* g2p_word_path_tag(G2pWordPath path) {
       return "oov-empty";
     case G2pWordPath::kUnknownNoOovModel:
       return "unknown-no-oov";
+    case G2pWordPath::kEnglishNumber:
+      return "english-number";
+    case G2pWordPath::kOovHandRules:
+      return "oov-hand-rules";
   }
   return "?";
 }

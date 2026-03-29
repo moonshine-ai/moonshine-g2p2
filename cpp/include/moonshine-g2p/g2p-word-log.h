@@ -17,6 +17,8 @@ enum class G2pWordPath {
   kOovModel,  // OOV ONNX produced phoneme tokens
   kOovModelNoOutput,  // OOV ran but produced no non-empty IPA
   kUnknownNoOovModel,  // not in dict and no OOV model loaded
+  kEnglishNumber,  // ``english_number_token_ipa``
+  kOovHandRules,  // English grapheme OOV rules (after empty ONNX output or no ONNX)
 };
 
 const char* g2p_word_path_tag(G2pWordPath path);

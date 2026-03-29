@@ -46,6 +46,8 @@ struct MoonshineG2POptions {
   bool portuguese_keep_syllable_dots = false;
   bool portuguese_expand_cardinal_digits = true;
   bool portuguese_apply_pt_pt_final_esh = true;
+  /// English rule G2P (``en_us``, ``en-US``, …): ``<model-root>/en_us/dict_filtered_heteronyms.tsv``.
+  std::optional<std::filesystem::path> english_dict_path;
   /// If set, override paths from g2p-config.json (same semantics as the CLI).
   std::optional<std::filesystem::path> dict_path_override;
   std::optional<std::filesystem::path> heteronym_onnx_override;

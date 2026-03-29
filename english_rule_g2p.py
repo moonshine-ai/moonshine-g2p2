@@ -8,6 +8,10 @@ Rule- and lexicon-based **English (US) grapheme-to-phoneme** (broad IPA).
   ``heteronym/homograph_index.json`` candidate order (when present), else sorted
   CMU order. Use :meth:`~EnglishLexiconRuleG2p.g2p_span` with sentence context to
   apply lightweight heteronym heuristics (``english_heteronym_heuristics``).
+* **Numeric tokens** (optional commas/underscores; optional leading ``+``/``-``;
+  optional decimal ``.`` with fractional digits) use :func:`english_number_token_ipa`
+  (English cardinals up to the trillions, digit-by-digit for leading-zero runs and
+  for the fractional part after the decimal point).
 * **Out-of-vocabulary** words use :class:`moonshine_onnx_g2p.OnnxOovG2p` when
   ``models/en_us/oov/model.onnx`` is present and ``onnxruntime`` loads (same default
   path as ``MoonshineOnnxG2P``). If the model is missing or inference fails, falls
@@ -315,12 +319,13 @@ _OOV_LITERALS: list[tuple[str, str]] = sorted(
 def _oov_single_consonant(c: str, w: str, i: int) -> str:
     if c == "c":
         nxt = w[i + 1] if i + 1 < len(w) else ""
-        if nxt in "eiy":
+        # ``nxt in "eiy"`` would be true for ``nxt == ""`` (substring quirk); match C++.
+        if nxt and nxt in "eiy":
             return "s"
         return "k"
     if c == "g":
         nxt = w[i + 1] if i + 1 < len(w) else ""
-        if nxt in "eiy":
+        if nxt and nxt in "eiy":
             return "dʒ"
         return "ɡ"
     if c == "j":
@@ -527,6 +532,197 @@ def _add_primary_stress_if_missing(ipa: str) -> str:
     return "ˈ" + s
 
 
+# --- English number → IPA (US-style cardinals, CMU-like phones) --------------------
+
+_UNITS_IPA: tuple[str, ...] = (
+    "ˈzɪroʊ",
+    "wˈʌn",
+    "tˈu",
+    "θɹˈi",
+    "fˈɔɹ",
+    "fˈaɪv",
+    "sˈɪks",
+    "sˈɛvən",
+    "ˈeɪt",
+    "nˈaɪn",
+)
+
+_TEENS_IPA: tuple[str, ...] = (
+    "tˈɛn",
+    "ɪlˈɛvən",
+    "twˈɛlv",
+    "θɝˈtin",
+    "fɔɹˈtin",
+    "fˈɪftin",
+    "sˈɪkstin",
+    "sˈɛvəntin",
+    "ˈeɪtin",
+    "nˈaɪntin",
+)
+
+_TENS_IPA: tuple[str | None, ...] = (
+    None,
+    None,
+    "twˈɛnti",
+    "θˈɝdi",
+    "fˈɔɹti",
+    "fˈɪfti",
+    "sˈɪksti",
+    "sˈɛvənti",
+    "ˈeɪti",
+    "nˈaɪnti",
+)
+
+_DIGIT_BY_DIGIT_IPA: dict[str, str] = {
+    "0": "ˈzɪroʊ",
+    "1": "ˈwʌn",
+    "2": "ˈtu",
+    "3": "ˈθɹi",
+    "4": "ˈfɔɹ",
+    "5": "ˈfaɪv",
+    "6": "ˈsɪks",
+    "7": "ˈsɛvən",
+    "8": "ˈeɪt",
+    "9": "ˈnaɪn",
+}
+
+
+def _digit_sequence_ipa(digits: str) -> str:
+    """Pronounce a digit string one digit at a time (IDs, codes, ``007``, …)."""
+    parts: list[str] = []
+    for ch in digits:
+        if ch.isdigit():
+            parts.append(_DIGIT_BY_DIGIT_IPA[ch])
+    return "ˌ".join(parts) if parts else ""
+
+
+def _under_100_ipa(n: int) -> str:
+    if not 0 <= n < 100:
+        raise ValueError(n)
+    if n < 10:
+        return _UNITS_IPA[n]
+    if n < 20:
+        return _TEENS_IPA[n - 10]
+    tens, unit = divmod(n, 10)
+    t = _TENS_IPA[tens]
+    assert t is not None
+    if unit == 0:
+        return t
+    return f"{t}ˌ{_UNITS_IPA[unit]}"
+
+
+def _under_1000_ipa(n: int) -> str:
+    if not 0 <= n < 1000:
+        raise ValueError(n)
+    if n < 100:
+        return _under_100_ipa(n)
+    hundreds, rest = divmod(n, 100)
+    head = f"{_UNITS_IPA[hundreds]}ˌhˈʌndɹɪd"
+    if rest == 0:
+        return head
+    return f"{head}ˌ{_under_100_ipa(rest)}"
+
+
+def _cardinal_non_negative_ipa(n: int) -> str | None:
+    """Spoken English cardinal for ``n`` (no ``and``). Returns ``None`` if *n* is too large."""
+    if n < 0:
+        raise ValueError(n)
+    if n == 0:
+        return "ˈzɪroʊ"
+    if n >= 10**15:
+        return None
+    scales: tuple[tuple[int, str], ...] = (
+        (10**12, "ˌtɹˈɪljən"),
+        (10**9, "ˌbˈɪljən"),
+        (10**6, "ˌmˈɪljən"),
+        (10**3, "ˌθˈaʊzənd"),
+    )
+    parts: list[str] = []
+    rem = n
+    for mag, sfx in scales:
+        if rem >= mag:
+            q, rem = divmod(rem, mag)
+            if q:
+                parts.append(_under_1000_ipa(q) + sfx)
+    if rem > 0:
+        parts.append(_under_1000_ipa(rem))
+    if not parts:
+        return _under_1000_ipa(n)
+    return "ˌ".join(parts)
+
+
+def _integer_decimal_string_ipa(s: str) -> str | None:
+    """
+    *s* is non-empty, optional leading ``-``, digits only or ``digits.digits``.
+    Returns IPA or ``None`` if not a supported numeral.
+    """
+    s = s.strip().replace(",", "").replace("_", "").replace(" ", "")
+    if not s:
+        return None
+    neg = False
+    if s[0] in "+-":
+        neg = s[0] == "-"
+        s = s[1:]
+    if not s:
+        return None
+    if s.count(".") > 1:
+        return None
+    if "." in s:
+        whole, frac = s.split(".", 1)
+        if whole and not whole.isdigit():
+            return None
+        if frac != "" and not frac.isdigit():
+            return None
+        if whole == "" and frac == "":
+            return None
+        if whole == "":
+            left = "ˈzɪroʊ"
+        elif len(whole) > 1 and whole[0] == "0":
+            left = _digit_sequence_ipa(whole)
+        else:
+            n = int(whole)
+            c = _cardinal_non_negative_ipa(n)
+            if c is None:
+                left = _digit_sequence_ipa(whole)
+            else:
+                left = c
+        if frac == "":
+            out = left
+        else:
+            out = f"{left}ˌˈpɔɪntˌ{_digit_sequence_ipa(frac)}"
+        return f"nˈɛɡətɪvˌ{out}" if neg else out
+
+    if not s.isdigit():
+        return None
+    if len(s) > 1 and s[0] == "0":
+        out = _digit_sequence_ipa(s)
+        return f"nˈɛɡətɪvˌ{out}" if neg else out
+    n = int(s)
+    c = _cardinal_non_negative_ipa(n)
+    if c is None:
+        out = _digit_sequence_ipa(s)
+    else:
+        out = c
+    return f"nˈɛɡətɪvˌ{out}" if neg else out
+
+
+def english_number_token_ipa(token: str) -> str | None:
+    """
+    If *token* is a plain numeral (after removing ``,``, ``_``, and internal spaces),
+    return broad US IPA; otherwise ``None``.
+
+    * Leading ``+`` is ignored; leading ``-`` adds a ``negative`` prefix.
+    * Leading-zero integers (e.g. ``007``, ``0911``) are read **digit by digit**.
+    * Fractions use ``point`` then digit-by-digit (e.g. ``3.14``).
+    * Cardinal synthesis covers non-negative integers ``< 10**15`` (trillions+).
+    """
+    t = (token or "").strip()
+    if not t:
+        return None
+    t = t.replace(",", "").replace("_", "").replace(" ", "")
+    return _integer_decimal_string_ipa(t)
+
+
 def english_oov_rules_ipa(word: str) -> str:
     """OOV-only IPA (no lexicon). Adds a single ˈ before the first vowel if absent."""
     raw = _oov_grapheme_to_ipa(word)
@@ -590,6 +786,15 @@ class EnglishLexiconRuleG2p:
         base = grapheme_key if grapheme_key else rules_fallback_surface
         return english_oov_rules_ipa(base)
 
+    def _try_number_ipa(self, grapheme_key: str, raw_surface: str) -> str | None:
+        """If *grapheme_key* or normalized *raw_surface* is a supported numeral, return IPA."""
+        for cand in (grapheme_key, normalize_word_for_lookup(raw_surface)):
+            if cand:
+                ipa = english_number_token_ipa(cand)
+                if ipa:
+                    return ipa
+        return None
+
     @classmethod
     def from_default_paths(cls) -> EnglishLexiconRuleG2p:
         return cls()
@@ -619,6 +824,9 @@ class EnglishLexiconRuleG2p:
             return hit
         key = normalize_word_for_lookup(word)
         gk = _normalize_grapheme_key(key) if key else ""
+        num = self._try_number_ipa(gk, word)
+        if num is not None:
+            return num
         return self._oov_ipa(gk, word)
 
     def g2p_span(self, text: str, span_s: int, span_e: int) -> str:
@@ -634,7 +842,11 @@ class EnglishLexiconRuleG2p:
         raw = text[span_s:span_e]
         key = _normalize_grapheme_key(normalize_word_for_lookup(raw))
         if not key:
-            return self._oov_ipa("", raw)
+            num = self._try_number_ipa("", raw)
+            return num if num is not None else self._oov_ipa("", raw)
+        num = self._try_number_ipa(key, raw)
+        if num is not None:
+            return num
         ipas = self._lex_multi.get(key)
         if not ipas:
             return self._oov_ipa(key, raw)
