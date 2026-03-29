@@ -40,6 +40,8 @@ struct MoonshineG2POptions {
   std::optional<std::filesystem::path> russian_dict_path;
   bool russian_with_stress = true;
   bool russian_vocoder_stress = true;
+  /// Simplified Chinese rule G2P (``zh``, ``zh-Hans``, ``cmn``, …): ``<model-root>/../data/zh_hans/dict.tsv`` or ``<model-root>/zh_hans/dict.tsv``.
+  std::optional<std::filesystem::path> chinese_dict_path;
   /// Portuguese rule G2P (``pt_br``, ``pt-br``, ``pt_pt``, ``portugal``, …): ``<model-root>/../data/pt_br/dict.tsv`` or ``pt_pt``.
   std::optional<std::filesystem::path> portuguese_dict_path;
   bool portuguese_with_stress = true;

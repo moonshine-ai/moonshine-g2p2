@@ -26,6 +26,7 @@ void usage(const char *argv0) {
       << "       [--no-stress] [--broad-phonemes] [--stdin]\n"
       << "       [--german-dict PATH] [--german-syllable-initial-stress]\n"
       << "       [--russian-dict PATH] [--russian-syllable-initial-stress]\n"
+      << "       [--chinese-dict PATH]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
       << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
       << "       [--french-dict PATH] [--french-csv-dir DIR]\n"
@@ -44,6 +45,8 @@ void usage(const char *argv0) {
          "or <model-root>/nl/dict.tsv; override with --dutch-dict.\n"
       << "  Russian (ru, ru-RU, russian): rule-based G2P; default <model-root>/../data/ru/dict.tsv "
          "or <model-root>/ru/dict.tsv; override with --russian-dict.\n"
+      << "  Chinese (zh, zh-Hans, cmn, …): rule-based G2P; default <model-root>/../data/zh_hans/dict.tsv "
+         "or <model-root>/zh_hans/dict.tsv; override with --chinese-dict.\n"
       << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
@@ -95,6 +98,8 @@ int main(int argc, char **argv) {
       opt.model_root = argv[++i];
     } else if (a == "--german-dict" && i + 1 < argc) {
       opt.german_dict_path = argv[++i];
+    } else if (a == "--chinese-dict" && i + 1 < argc) {
+      opt.chinese_dict_path = argv[++i];
     } else if (a == "--russian-dict" && i + 1 < argc) {
       opt.russian_dict_path = argv[++i];
     } else if (a == "--russian-syllable-initial-stress") {
