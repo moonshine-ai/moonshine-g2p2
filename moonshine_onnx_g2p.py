@@ -60,6 +60,23 @@ _DEFAULT_HETERONYM_ONNX = _REPO_ROOT / "models" / "en_us" / "heteronym" / "model
 
 CONFIG_ONNX_SCHEMA_VERSION = 1
 _CONFIG_ONNX_NAME = "config_onnx.json"
+# Some trees ship the export bundle as ``onnx-config.json`` (same schema as ``config_onnx.json``).
+_LEGACY_MERGED_CONFIG_NAME = "onnx-config.json"
+
+
+def _load_merged_onnx_config(parent: Path, *, expect_kind: str) -> dict[str, Any]:
+    """Load merged ONNX JSON from *parent*; prefer ``config_onnx.json``, then ``onnx-config.json``."""
+    for name in (_CONFIG_ONNX_NAME, _LEGACY_MERGED_CONFIG_NAME):
+        p = parent / name
+        if not p.is_file():
+            continue
+        cfg = json.loads(p.read_text(encoding="utf-8"))
+        _validate_merged_onnx_config(cfg, expect_kind=expect_kind, path=p)
+        return cfg
+    raise FileNotFoundError(
+        f"no merged ONNX config in {parent} (tried {_CONFIG_ONNX_NAME!r}, "
+        f"{_LEGACY_MERGED_CONFIG_NAME!r})"
+    )
 
 
 def _validate_merged_onnx_config(cfg: dict[str, Any], *, expect_kind: str, path: Path) -> None:
@@ -419,10 +436,7 @@ class OnnxHeteronymG2p:
         if not self._path.is_file():
             raise FileNotFoundError(f"heteronym ONNX model not found: {self._path}")
         parent = self._path.parent
-        merged_path = parent / _CONFIG_ONNX_NAME
-        assert merged_path.is_file()
-        cfg = json.loads(merged_path.read_text(encoding="utf-8"))
-        _validate_merged_onnx_config(cfg, expect_kind="heteronym", path=merged_path)
+        cfg = _load_merged_onnx_config(parent, expect_kind="heteronym")
         self._char_stoi = cfg["char_vocab"]
         self._phon_stoi = cfg["phoneme_vocab"]
         homograph = cfg["homograph_index"]
