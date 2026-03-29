@@ -30,9 +30,8 @@ struct RuleBasedG2pInstance {
   RuleBasedG2pKind kind;
 };
 
-/// Try to construct a rule-based engine for *dialect_id* (trimmed). Returns nullopt if the dialect
-/// should fall back to ONNX. Order matches previous ``MoonshineG2P`` resolution (Spanish first, then
-/// German, French, Dutch, Italian, Russian, Portuguese).
+/// Try to construct a rule-based engine for *dialect_id* (trimmed). Returns nullopt if unknown.
+/// Order: English, Spanish, German, French, Dutch, Italian, Russian, Portuguese.
 std::optional<RuleBasedG2pInstance> create_rule_based_g2p(
     std::string_view dialect_id,
     const MoonshineG2POptions& options);

@@ -1,5 +1,4 @@
 #include "moonshine-g2p/moonshine-g2p.h"
-#include "moonshine-g2p/moonshine-onnx-g2p.h"
 #include "moonshine-g2p/rule-based-g2p-factory.h"
 #include "moonshine-g2p/rule-based-g2p.h"
 #include "moonshine-g2p/lang-specific/dutch.h"
@@ -12,8 +11,6 @@
 #include "moonshine-g2p/lang-specific/spanish.h"
 
 #include <cctype>
-#include <fstream>
-#include <nlohmann/json.hpp>
 #include <stdexcept>
 
 namespace moonshine_g2p {
@@ -61,58 +58,6 @@ std::string normalize_spanish_dialect_cli_key(std::string_view raw) {
     }
   }
   return s;
-}
-
-/// Directory name under ``models/`` (e.g. ``en_us``).
-std::string dialect_to_onnx_model_subdir(std::string_view raw) {
-  std::string s = trim_copy(raw);
-  for (char& c : s) {
-    if (c == '-') {
-      c = '_';
-    } else {
-      c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-  }
-  return s;
-}
-
-void resolve_onnx_paths(const std::filesystem::path& data_root, const MoonshineG2POptions& opt,
-                        std::optional<std::filesystem::path>& dict_path,
-                        std::optional<std::filesystem::path>& het_onnx_path,
-                        std::optional<std::filesystem::path>& oov_onnx_path) {
-  const std::filesystem::path g2p_config_path = data_root / "g2p-config.json";
-  const bool g2p_config_exists = std::filesystem::is_regular_file(g2p_config_path);
-  if (!g2p_config_exists) {
-    if (!opt.heteronym_onnx_override && !opt.oov_onnx_override && !opt.dict_path_override) {
-      throw std::runtime_error(
-          "No ONNX G2P bundle: g2p-config.json not found at " + g2p_config_path.generic_string() +
-          " (use path overrides or pick a dialect with rule-based G2P, e.g. es-MX, pt_br, de).");
-    }
-    dict_path = opt.dict_path_override;
-    het_onnx_path = opt.heteronym_onnx_override;
-    oov_onnx_path = opt.oov_onnx_override;
-    return;
-  }
-  std::ifstream g2p_config_in(g2p_config_path);
-  const nlohmann::json g2p_config = nlohmann::json::parse(g2p_config_in);
-  if (g2p_config["uses_dictionary"].get<bool>()) {
-    dict_path = data_root / "dict_filtered_heteronyms.tsv";
-  }
-  if (g2p_config["uses_heteronym_model"].get<bool>()) {
-    het_onnx_path = data_root / "heteronym" / "model.onnx";
-  }
-  if (g2p_config["uses_oov_model"].get<bool>()) {
-    oov_onnx_path = data_root / "oov" / "model.onnx";
-  }
-}
-
-void require_exists_if_set(const std::optional<std::filesystem::path>& p, const char* label) {
-  if (!p) {
-    return;
-  }
-  if (!std::filesystem::is_regular_file(*p)) {
-    throw std::runtime_error(std::string(label) + " not found at " + p->generic_string());
-  }
 }
 
 }  // namespace
@@ -181,28 +126,15 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
     return;
   }
 
-  rule_backend_.reset();
-  dialect_id_ = dialect_to_onnx_model_subdir(trimmed);
-  std::optional<std::filesystem::path> dict_path;
-  std::optional<std::filesystem::path> het_onnx_path;
-  std::optional<std::filesystem::path> oov_onnx_path;
-  const std::filesystem::path data_root = options.model_root / dialect_id_;
-  resolve_onnx_paths(data_root, options, dict_path, het_onnx_path, oov_onnx_path);
-
-  require_exists_if_set(dict_path, "dictionary TSV");
-  require_exists_if_set(het_onnx_path, "heteronym ONNX model");
-  require_exists_if_set(oov_onnx_path, "OOV ONNX model");
-
-  onnx_ = std::make_unique<MoonshineOnnxG2p>(dict_path, het_onnx_path, oov_onnx_path,
-                                             options.use_cuda);
+  throw std::runtime_error(
+      "MoonshineG2P: unsupported dialect \"" + trimmed +
+      "\". Only rule-based locales are supported (e.g. en_us, es-MX, de, fr, nl, it, ru, pt_br); "
+      "see dialect_uses_rule_based_g2p() and rule_based_g2p_dialect_catalog().");
 }
 
 std::string MoonshineG2P::text_to_ipa(std::string_view text, std::vector<G2pWordLog>* per_word_log) {
   if (rules_) {
     return rules_->text_to_ipa(std::string(text), per_word_log);
-  }
-  if (onnx_) {
-    return onnx_->text_to_ipa(text, per_word_log);
   }
   throw std::logic_error("MoonshineG2P: no backend initialized");
 }

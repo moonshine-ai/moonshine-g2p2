@@ -6,7 +6,8 @@
 
 namespace moonshine_g2p {
 
-/// Options for constructing ``MoonshineG2P`` (ONNX paths and rule-engine toggles).
+/// Options for constructing ``MoonshineG2P`` (rule-engine paths and toggles; optional heteronym/OOV
+/// ONNX overrides for English).
 struct MoonshineG2POptions {
   std::filesystem::path model_root = "models";
   bool use_cuda = false;
@@ -48,8 +49,7 @@ struct MoonshineG2POptions {
   bool portuguese_apply_pt_pt_final_esh = true;
   /// English rule G2P (``en_us``, ``en-US``, …): ``<model-root>/en_us/dict_filtered_heteronyms.tsv``.
   std::optional<std::filesystem::path> english_dict_path;
-  /// If set, override paths from g2p-config.json (same semantics as the CLI).
-  std::optional<std::filesystem::path> dict_path_override;
+  /// Override heteronym / OOV ONNX paths from ``en_us/g2p-config.json`` (English only).
   std::optional<std::filesystem::path> heteronym_onnx_override;
   std::optional<std::filesystem::path> oov_onnx_override;
 };

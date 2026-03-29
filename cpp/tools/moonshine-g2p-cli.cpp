@@ -1,4 +1,4 @@
-// Unified G2P CLI: rule-based dialects (e.g. Spanish) or ONNX bundles under models/<dialect>/.
+// Unified G2P CLI: rule-based dialects (English, Spanish, German, …).
 #include "moonshine-g2p/g2p-word-log.h"
 #include "moonshine-g2p/lang-specific/spanish.h"
 #include "moonshine-g2p/moonshine-g2p.h"
@@ -46,7 +46,8 @@ void usage(const char *argv0) {
          "or <model-root>/ru/dict.tsv; override with --russian-dict.\n"
       << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
-      << "  -d PATH is an alias for --dict PATH.\n";
+      << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
+         "<model-root>/en_us/).\n";
 }
 
 std::string read_all_stdin() {
@@ -74,7 +75,7 @@ int main(int argc, char **argv) {
     if (a == "--print-spanish-dialects") {
       print_spanish_dialects = true;
     } else if ((a == "--dict" || a == "-d") && i + 1 < argc) {
-      opt.dict_path_override = argv[++i];
+      opt.english_dict_path = argv[++i];
     } else if (a == "--heteronym-onnx" && i + 1 < argc) {
       opt.heteronym_onnx_override = argv[++i];
     } else if (a == "--oov-onnx" && i + 1 < argc) {

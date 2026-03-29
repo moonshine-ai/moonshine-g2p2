@@ -6,7 +6,7 @@
 
 namespace moonshine_g2p {
 
-// How a surface word was converted to IPA in MoonshineOnnxG2p::text_to_ipa.
+// How a surface word was converted to IPA in ``MoonshineG2P`` / ``EnglishRuleG2p`` pipelines.
 enum class G2pWordPath {
   kSkippedEmptyKey,  // normalize_word_for_lookup produced nothing
   kTokenNotLocatedInText,  // could not align token in full text (skipped)
