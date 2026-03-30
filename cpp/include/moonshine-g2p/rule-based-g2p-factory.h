@@ -27,6 +27,7 @@ enum class RuleBasedG2pKind {
   Japanese,
   Arabic,
   Portuguese,
+  Turkish,
 };
 
 struct RuleBasedG2pInstance {
@@ -37,7 +38,7 @@ struct RuleBasedG2pInstance {
 
 /// Try to construct a rule-based engine for *dialect_id* (trimmed). Returns nullopt if unknown.
 /// Order: English, Spanish, German, French, Dutch, Italian, Russian, Chinese, Korean, Vietnamese,
-/// Japanese, Arabic, Portuguese.
+/// Japanese, Arabic, Portuguese, Turkish.
 std::optional<RuleBasedG2pInstance> create_rule_based_g2p(
     std::string_view dialect_id,
     const MoonshineG2POptions& options);

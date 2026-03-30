@@ -26,7 +26,7 @@ bool dialect_uses_rule_based_g2p(std::string_view dialect_id,
 
 /// Single entry point: *dialect_id* is a tag such as ``en_us``, ``es-AR``, ``de``, ``de-DE``.
 /// Only rule-based engines are supported (English, Spanish, German, French, Dutch, Italian, Russian,
-/// Chinese, Korean, Vietnamese, Japanese, Arabic, Portuguese). Other dialect ids throw ``std::runtime_error``.
+/// Chinese, Korean, Vietnamese, Japanese, Arabic, Portuguese, Turkish). Other dialect ids throw ``std::runtime_error``.
 class MoonshineG2P {
  public:
   explicit MoonshineG2P(std::string dialect_id, MoonshineG2POptions options = {});
@@ -56,6 +56,7 @@ class MoonshineG2P {
   bool uses_portuguese_rules() const {
     return rule_backend_ == RuleBasedG2pKind::Portuguese;
   }
+  bool uses_turkish_rules() const { return rule_backend_ == RuleBasedG2pKind::Turkish; }
   bool uses_english_rules() const { return rule_backend_ == RuleBasedG2pKind::English; }
   /// Always false: full-bundle ONNX G2P was removed; English may still load optional heteronym/OOV
   /// ONNX inside ``EnglishRuleG2p``.

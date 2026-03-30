@@ -64,6 +64,9 @@ struct MoonshineG2POptions {
   bool portuguese_keep_syllable_dots = false;
   bool portuguese_expand_cardinal_digits = true;
   bool portuguese_apply_pt_pt_final_esh = true;
+  /// Turkish rule G2P (``tr``, ``tr-TR``, ``turkish``): no external lexicon; optional digit expansion.
+  bool turkish_with_stress = true;
+  bool turkish_expand_cardinal_digits = true;
   /// English rule G2P (``en_us``, ``en-US``, …): ``<model-root>/en_us/dict_filtered_heteronyms.tsv``.
   std::optional<std::filesystem::path> english_dict_path;
   /// Override heteronym / OOV ONNX paths from ``en_us/g2p-config.json`` (English only).

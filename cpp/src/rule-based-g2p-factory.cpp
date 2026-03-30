@@ -16,6 +16,7 @@
 #include "moonshine-g2p/lang-specific/portuguese.h"
 #include "moonshine-g2p/lang-specific/russian.h"
 #include "moonshine-g2p/lang-specific/spanish.h"
+#include "moonshine-g2p/lang-specific/turkish.h"
 #include "moonshine-g2p/utf8-utils.h"
 
 #include <cctype>
@@ -382,6 +383,21 @@ std::optional<RuleBasedG2pInstance> try_arabic(std::string_view trimmed,
   return out;
 }
 
+std::optional<RuleBasedG2pInstance> try_turkish(std::string_view trimmed,
+                                                const MoonshineG2POptions& options) {
+  if (!dialect_resolves_to_turkish_rules(trimmed)) {
+    return std::nullopt;
+  }
+  TurkishRuleG2p::Options to;
+  to.with_stress = options.turkish_with_stress;
+  to.expand_cardinal_digits = options.turkish_expand_cardinal_digits;
+  RuleBasedG2pInstance out;
+  out.canonical_dialect_id = "tr-TR";
+  out.kind = RuleBasedG2pKind::Turkish;
+  out.engine = std::make_unique<TurkishRuleG2p>(std::move(to));
+  return out;
+}
+
 std::optional<RuleBasedG2pInstance> try_portuguese(std::string_view trimmed,
                                                   const MoonshineG2POptions& options) {
   const bool want_pt_br = dialect_resolves_to_brazilian_portuguese_rules(trimmed);
@@ -427,6 +443,7 @@ const TryFn kTryChain[] = {
     try_japanese,
     try_arabic,
     try_portuguese,
+    try_turkish,
 };
 
 }  // namespace
@@ -460,6 +477,7 @@ std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> rule_based_g2
   out.emplace_back(RuleBasedG2pKind::Japanese, JapaneseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Arabic, ArabicRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Portuguese, PortugueseRuleG2p::dialect_ids());
+  out.emplace_back(RuleBasedG2pKind::Turkish, TurkishRuleG2p::dialect_ids());
   return out;
 }
 
