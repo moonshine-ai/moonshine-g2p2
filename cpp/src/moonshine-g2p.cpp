@@ -15,6 +15,7 @@
 #include "moonshine-g2p/lang-specific/russian.h"
 #include "moonshine-g2p/lang-specific/spanish.h"
 #include "moonshine-g2p/lang-specific/turkish.h"
+#include "moonshine-g2p/lang-specific/ukrainian.h"
 #include "moonshine-g2p/utf8-utils.h"
 
 #include <cctype>
@@ -121,6 +122,9 @@ bool dialect_uses_rule_based_g2p(std::string_view dialect_id, const MoonshineG2P
   if (dialect_resolves_to_turkish_rules(norm)) {
     return true;
   }
+  if (dialect_resolves_to_ukrainian_rules(norm)) {
+    return true;
+  }
   return false;
 }
 
@@ -148,7 +152,7 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
 
   throw std::runtime_error(
       "MoonshineG2P: unsupported dialect \"" + trimmed +
-      "\". Only rule-based locales are supported (e.g. en_us, es-MX, de, fr, nl, it, ru, zh, ko, vi, ja, ar, pt_br, tr); "
+      "\". Only rule-based locales are supported (e.g. en_us, es-MX, de, fr, nl, it, ru, zh, ko, vi, ja, ar, pt_br, tr, uk); "
       "see dialect_uses_rule_based_g2p() and rule_based_g2p_dialect_catalog().");
 }
 

@@ -35,7 +35,7 @@ void usage(const char *argv0) {
       << "       [--arabic-dict PATH] [--arabic-onnx-dir DIR]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
       << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
-      << "       [--no-turkish-expand-digits]\n"
+      << "       [--no-turkish-expand-digits] [--no-ukrainian-expand-digits]\n"
       << "       [--french-dict PATH] [--french-csv-dir DIR]\n"
       << "       [--no-french-liaison] [--no-french-oov] [--no-french-expand-digits]\n"
       << "       [--no-french-optional-liaison]\n"
@@ -66,6 +66,7 @@ void usage(const char *argv0) {
       << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  Turkish (tr, tr-TR, turkish): rule-based G2P (no lexicon); optional cardinal digit expansion.\n"
+      << "  Ukrainian (uk, uk-UA, ukrainian): rule-based G2P (no lexicon); optional cardinal digit expansion.\n"
       << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
          "<model-root>/en_us/).\n";
 }
@@ -106,6 +107,8 @@ const char *rule_based_kind_label(RuleBasedG2pKind k) {
     return "Portuguese";
   case RuleBasedG2pKind::Turkish:
     return "Turkish";
+  case RuleBasedG2pKind::Ukrainian:
+    return "Ukrainian";
   default:
     return "Unknown";
   }
@@ -190,6 +193,8 @@ int main(int argc, char **argv) {
       opt.portuguese_expand_cardinal_digits = false;
     } else if (a == "--no-turkish-expand-digits") {
       opt.turkish_expand_cardinal_digits = false;
+    } else if (a == "--no-ukrainian-expand-digits") {
+      opt.ukrainian_expand_cardinal_digits = false;
     } else if (a == "--french-dict" && i + 1 < argc) {
       opt.french_dict_path = argv[++i];
     } else if (a == "--french-csv-dir" && i + 1 < argc) {
@@ -217,6 +222,7 @@ int main(int argc, char **argv) {
       opt.russian_with_stress = false;
       opt.portuguese_with_stress = false;
       opt.turkish_with_stress = false;
+      opt.ukrainian_with_stress = false;
     } else if (a == "--broad-phonemes") {
       opt.spanish_narrow_obstruents = false;
     } else if (a == "--stdin") {
