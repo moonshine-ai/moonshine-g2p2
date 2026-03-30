@@ -1,6 +1,10 @@
-"""Tests for :mod:`korean_rule_g2p` (pure Python rule pipeline)."""
+"""Tests for :mod:`korean_rule_g2p` (required ``data/ko/dict.tsv`` + normalization)."""
 
 from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
 
 from korean_rule_g2p import (
     apply_linking,
@@ -8,9 +12,16 @@ from korean_rule_g2p import (
     compose_syllable,
     decompose_syllable,
     korean_g2p,
+    load_korean_lexicon,
+    normalize_korean_ipa,
     text_to_syllables,
     text_to_syllables_scan,
 )
+
+_REPO = Path(__file__).resolve().parents[1]
+_KO_DICT = _REPO / "data" / "ko" / "dict.tsv"
+
+pytestmark = pytest.mark.skipif(not _KO_DICT.is_file(), reason="data/ko/dict.tsv required")
 
 
 def test_decompose_compose_roundtrip() -> None:
@@ -32,13 +43,19 @@ def test_lateralization_silla() -> None:
     assert syls[0].jong == 8  # coda ㄹ
 
 
-def test_g2p_examples() -> None:
-    assert korean_g2p("닭이") == "dal.ki"
-    assert korean_g2p("국물") == "kuŋ.mul"
-    assert "ɕil.la" in korean_g2p("신라")
-    assert korean_g2p("좋다") == "tɕo.tʰa"
-    assert "k͈jo" in korean_g2p("학교")
-    assert korean_g2p("닫는") == "dan.nɯn"
+def test_normalize_strips_vowel_diacritics_keeps_tense_unreleased() -> None:
+    assert normalize_korean_ipa("ha̠k̚k͈jo") == "hak̚k͈jo"
+    assert normalize_korean_ipa("kuŋmuɭ") == "kuŋmul"
+
+
+def test_g2p_examples_with_required_lexicon() -> None:
+    lex = load_korean_lexicon(_KO_DICT)
+    assert korean_g2p("닭이", dict_path=_KO_DICT) == "dal.ki"  # OOV → rules + normalize
+    assert korean_g2p("국물", dict_path=_KO_DICT) == lex["국물"]
+    assert korean_g2p("신라", dict_path=_KO_DICT) == lex["신라"]
+    assert korean_g2p("좋다", dict_path=_KO_DICT) == lex["좋다"]
+    assert korean_g2p("학교", dict_path=_KO_DICT) == lex["학교"]
+    assert korean_g2p("닫는", dict_path=_KO_DICT) == "dan.nɯn"
 
 
 def test_text_to_syllables_alias() -> None:
@@ -51,6 +68,27 @@ def test_hangul_order_three_syllables() -> None:
     assert got == ["한", "국", "어"]
 
 
-def test_korean_g2p_ignores_legacy_use_mecab_kwarg() -> None:
-    assert korean_g2p("학교", use_mecab=False) == korean_g2p("학교")
-    assert korean_g2p("학교", use_mecab=True) == korean_g2p("학교")
+def test_korean_g2p_ignores_legacy_kwargs() -> None:
+    assert korean_g2p("학교", use_mecab=False, dict_path=_KO_DICT) == korean_g2p("학교", dict_path=_KO_DICT)
+    assert korean_g2p("학교", use_lexicon=True, dict_path=_KO_DICT) == korean_g2p("학교", dict_path=_KO_DICT)
+
+
+def test_lexicon_full_token_hakgyo() -> None:
+    lex = load_korean_lexicon(_KO_DICT)
+    assert "학교" in lex
+    assert korean_g2p("학교", dict_path=_KO_DICT) == lex["학교"]
+
+
+def test_lexicon_oov_dalgi_uses_rules_for_sandhi() -> None:
+    assert korean_g2p("닭이", dict_path=_KO_DICT) == "dal.ki"
+
+
+def test_lexicon_two_words_joined_with_space() -> None:
+    lex = load_korean_lexicon(_KO_DICT)
+    assert korean_g2p("학교 에", dict_path=_KO_DICT) == f'{lex["학교"]} {lex["에"]}'
+
+
+def test_load_korean_lexicon_raises_without_file(tmp_path: Path) -> None:
+    missing = tmp_path / "nope.tsv"
+    with pytest.raises(FileNotFoundError):
+        load_korean_lexicon(missing)

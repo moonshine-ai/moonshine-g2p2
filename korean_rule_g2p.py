@@ -3,9 +3,13 @@
 Korean grapheme-to-phoneme (G2P) — broad IPA for Standard Korean (Seoul), rule-based.
 
 **Pure Python:** no MeCab or other native morphological analyzers. Hangul syllables are
-read in NFC codepoint order (one syllable block per U+AC00..U+D7A3). Optional true
-morpheme boundaries would need a separate lexicon + segmenter; they are not required for
-the current IPA rules (tensification is syllable-based).
+read in NFC codepoint order (one syllable block per U+AC00..U+D7A3).
+
+**Lexicon (required):** ``data/ko/dict.tsv`` (or ``dict_path``) must exist. Each
+**whitespace-separated token** whose Hangul substring is a **full dictionary key** uses that
+entry’s IPA after :func:`normalize_korean_ipa`; otherwise the **internal rule pipeline** runs
+on that token (OOV sandhi). Lexicon IPA is normalized to the same broad inventory as rule
+output (stress/length stripped, affricates unified, extra vowel diacritics removed, etc.).
 
 Pipeline (high level):
 1. **Syllable scan** — collect ``(choseong, jungseong, jongseong)`` per Hangul character.
@@ -26,7 +30,8 @@ Hangul is almost phonemic at the jamo level; most error budget is in post-lexica
 lexicalized tensification. Loanwords written in Hangul generally read by the same rules.
 
 Dependencies::
-    None (stdlib only).
+    None (stdlib only). Requires ``data/ko/dict.tsv`` (or a path you pass): ``word<TAB>ipa``,
+    UTF-8, NFC keys; duplicate spellings keep the first line.
 
 Limitations::
     Palatalization of verb stems, lexicalized exceptions to tensification, precise coda
@@ -42,6 +47,13 @@ import argparse
 import re
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
+
+_REPO_ROOT = Path(__file__).resolve().parent
+_DEFAULT_KO_DICT = _REPO_ROOT / "data" / "ko" / "dict.tsv"
+
+# Resolved path string -> lexicon (may be empty dict if missing)
+_KO_LEXICON_CACHE: dict[str, dict[str, str]] = {}
 
 # ---------------------------------------------------------------------------
 # Hangul decomposition (Unicode syllable formula)
@@ -233,6 +245,109 @@ def text_tokenization_debug(text: str) -> str:
         else:
             lines.append(f"{frag}\tOther")
     return "\n".join(lines)
+
+
+# Combining marks we keep (unreleased stop, tense obstruent). All other Mn are stripped.
+_IPA_KEEP_MN: frozenset[str] = frozenset({"\u031a", "\u0348"})  # ̚ ͈
+
+
+def normalize_korean_ipa(ipa: str) -> str:
+    """
+    Map lexicon-style IPA to the broad inventory used by the rule G2P path.
+
+    Strips lexical stress and length, removes vowel-height / tongue-root combining marks
+    (keeps syllable-final unreleased ``k̚`` and tense ``k͈``), collapses tie-bar affricates
+    to single digraphs, and aligns liquids / voiced velars with rule output.
+    """
+    t = unicodedata.normalize("NFD", ipa.strip())
+    out: list[str] = []
+    for ch in t:
+        if unicodedata.category(ch) == "Mn":
+            if ch in _IPA_KEEP_MN:
+                out.append(ch)
+            continue
+        out.append(ch)
+    t = unicodedata.normalize("NFC", "".join(out))
+    for mark in "\u02c8\u02cc":  # ˈ ˌ
+        t = t.replace(mark, "")
+    t = t.replace("ː", "")
+    # Tie-bar affricates (longest first)
+    t = t.replace("t\u0361ɕʰ", "tɕʰ")
+    t = t.replace("t\u0361ɕ", "tɕ")
+    t = t.replace("d\u0361ʑʰ", "tɕʰ")
+    t = t.replace("d\u0361ʑ", "tɕ")
+    t = t.replace("t\u0361ʃ", "tɕʰ")
+    t = t.replace("t\u0361s", "ts")
+    # Other common lexicon digraphs
+    t = t.replace("t͡ɕʰ", "tɕʰ")
+    t = t.replace("t͡ɕ", "tɕ")
+    t = t.replace("d͡ʑ", "tɕ")
+    t = t.replace("d͡ʑʰ", "tɕʰ")
+    t = t.replace("t͡ʃ", "tɕʰ")
+    t = t.replace("p͡ɸ", "pʰ")
+    t = t.replace("k͡x", "kʰ")
+    # Liquids / fricatives → rule-style
+    t = t.replace("ɕʰ", "ɕ")
+    t = t.replace("ʃʰ", "ɕ")
+    t = t.replace("ɭ", "l")
+    t = t.replace("ɾ", "l")
+    t = t.replace("β", "b")
+    t = t.replace("ɦ", "h")
+    t = t.replace("ç", "h")
+    # Align with plain obstruent letters used in rules (no voiced velar glyph)
+    t = t.replace("ɡ", "k")
+    t = t.replace("ɟ", "tɕ")
+    return t
+
+
+def load_korean_lexicon(path: Path | str | None = None) -> dict[str, str]:
+    """
+    Load ``grapheme<TAB>ipa`` TSV. Keys are NFC-normalized; **first line wins** for duplicate
+    spellings. IPA values are passed through :func:`normalize_korean_ipa`.
+
+    Raises:
+        FileNotFoundError: if the lexicon file does not exist.
+    """
+    p = (Path(path) if path is not None else _DEFAULT_KO_DICT).resolve()
+    sk = str(p)
+    if sk in _KO_LEXICON_CACHE:
+        return _KO_LEXICON_CACHE[sk]
+    if not p.is_file():
+        raise FileNotFoundError(f"Korean lexicon required but not found: {p}")
+    m: dict[str, str] = {}
+    with p.open(encoding="utf-8") as f:
+        for line in f:
+            line = line.rstrip("\n\r")
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t", 1)
+            if len(parts) != 2:
+                continue
+            surf, ipa = parts[0].strip(), parts[1].strip()
+            if not surf:
+                continue
+            k = unicodedata.normalize("NFC", surf)
+            if k not in m:
+                m[k] = normalize_korean_ipa(ipa)
+    _KO_LEXICON_CACHE[sk] = m
+    return m
+
+
+def _extract_hangul(s: str) -> str:
+    return "".join(ch for ch in unicodedata.normalize("NFC", s) if "\uac00" <= ch <= "\ud7a3")
+
+
+def _g2p_hangul_rules_only(hangul: str, syllable_sep: str) -> str:
+    """Rule G2P on a Hangul-only string (may be multiple syllables)."""
+    if not hangul:
+        return ""
+    syls = text_to_syllables(hangul)
+    if not syls:
+        return ""
+    syls = [s.copy() for s in syls]
+    apply_linking(syls)
+    apply_lateralization(syls)
+    return normalize_korean_ipa(syllables_to_ipa(syls, syllable_sep=syllable_sep))
 
 
 def apply_linking(syls: list[Syllable]) -> None:
@@ -457,32 +572,56 @@ def korean_g2p(
     text: str,
     *,
     syllable_sep: str = ".",
+    dict_path: Path | str | None = None,
     **kwargs: object,
 ) -> str:
     """
-    Full pipeline: Hangul syllable scan → linking → lateralization → IPA.
-    Non-Hangul characters are ignored for pronunciation (removed from output).
+    Grapheme → IPA for Korean. A lexicon file is **required** (default ``data/ko/dict.tsv``).
 
-    For backward compatibility, ``use_mecab=...`` is accepted and ignored (MeCab was removed).
+    Splits on whitespace; for each token, uses Hangul-only characters. If that substring is a
+    **full** lexicon key, uses the stored (normalized) IPA; otherwise runs the rule pipeline
+    on that token (OOV). Chunks are joined with a space. All IPA is normalized with
+    :func:`normalize_korean_ipa`.
+
+    Raises:
+        FileNotFoundError: if the lexicon file is missing.
+
+    ``use_mecab`` and ``use_lexicon`` keyword arguments are ignored if passed.
     """
     kwargs.pop("use_mecab", None)
+    kwargs.pop("use_lexicon", None)
     if kwargs:
         bad = ", ".join(sorted(kwargs))
         raise TypeError(f"korean_g2p() got unexpected keyword arguments: {bad}")
-    syls = text_to_syllables(text)
-    if not syls:
+
+    raw = unicodedata.normalize("NFC", text.strip())
+    if not raw:
         return ""
-    syls = [s.copy() for s in syls]
-    apply_linking(syls)
-    apply_lateralization(syls)
-    return syllables_to_ipa(syls, syllable_sep=syllable_sep)
+
+    lex = load_korean_lexicon(dict_path)
+    ipa_words: list[str] = []
+    for w in raw.split():
+        h = _extract_hangul(w)
+        if not h:
+            continue
+        if h in lex:
+            ipa_words.append(lex[h])
+        else:
+            ipa_words.append(_g2p_hangul_rules_only(h, syllable_sep))
+    return " ".join(ipa_words)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Korean rule G2P (pure Python phonology heuristics).")
     ap.add_argument("text", nargs="*", help="Korean text (or read stdin if empty)")
     ap.add_argument("--verbose", "-v", action="store_true", help="Print rough token / script runs (debug).")
-    ap.add_argument("--sep", default=".", help="Syllable separator in IPA output (default: period).")
+    ap.add_argument(
+        "--dict",
+        dest="dict_path",
+        default=None,
+        help=f"Lexicon TSV (required; default: {_DEFAULT_KO_DICT}).",
+    )
+    ap.add_argument("--sep", default=".", help="Syllable separator for rule-based chunks (default: period).")
     args = ap.parse_args()
     if args.text:
         raw = " ".join(args.text)
@@ -493,7 +632,8 @@ def main() -> None:
     if args.verbose:
         print(text_tokenization_debug(raw))
         print("---")
-    ipa = korean_g2p(raw, syllable_sep=args.sep)
+    dp = Path(args.dict_path) if args.dict_path else None
+    ipa = korean_g2p(raw, syllable_sep=args.sep, dict_path=dp)
     print(ipa)
 
 

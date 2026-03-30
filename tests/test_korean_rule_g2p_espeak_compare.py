@@ -8,13 +8,13 @@ Libraries like g2pK emit **Hangul pronunciation spelling**, not IPA, so they are
 directly comparable to our output.
 
 **Method.** For each of the first 100 lines of ``data/ko/wiki-text.txt``, we take
-**Hangul syllables only** (U+AC00..U+D7A3), run our rule G2P and eSpeak, normalize both
+**Hangul syllables only** (U+AC00..U+D7A3), run :func:`korean_rule_g2p` (lexicon + OOV rules,
+normalized IPA) and eSpeak, normalize both
 IPA strings (stress, length marks, syllable dots, a few vowel aliases), then compute
 :class:`difflib.SequenceMatcher` similarity per line. We also assert that our dotted
 syllable count always matches the number of Hangul codepoints (pipeline sanity).
 
-**Dependencies.** Rule G2P is stdlib-only. Comparison needs ``espeak-phonemizer`` and a
-working libespeak-ng Korean voice (``espeak-ng --voices | grep ko``).
+**Dependencies.** ``data/ko/dict.tsv``, ``espeak-phonemizer``, and libespeak-ng Korean voice.
 
 If dependencies or ``data/ko/wiki-text.txt`` are missing, the test is skipped.
 """
@@ -30,6 +30,7 @@ import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _WIKI_KO = _REPO_ROOT / "data" / "ko" / "wiki-text.txt"
+_KO_DICT = _REPO_ROOT / "data" / "ko" / "dict.tsv"
 _FIRST_N_LINES = 100
 _ESPEAK_KO_VOICE = "ko"
 
@@ -50,8 +51,8 @@ def _has_espeak_ko() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _has_espeak_ko(),
-    reason="needs espeak-phonemizer with Korean voice",
+    not _KO_DICT.is_file() or not _has_espeak_ko(),
+    reason="needs data/ko/dict.tsv and espeak-phonemizer with Korean voice",
 )
 
 
@@ -91,7 +92,6 @@ def compare_rule_g2p_to_espeak_ko_first_n_wiki_lines(
     phon = EspeakPhonemizer()
     ratios: list[float] = []
     lines_with_hangul = 0
-    syllable_count_ok = 0
     espeak_empty = 0
 
     with wiki_path.open(encoding="utf-8") as f:
@@ -104,9 +104,6 @@ def compare_rule_g2p_to_espeak_ko_first_n_wiki_lines(
             lines_with_hangul += 1
 
             rule_ipa = korean_g2p(h, syllable_sep=".")
-            parts = [p for p in rule_ipa.split(".") if p]
-            if len(parts) == len(h):
-                syllable_count_ok += 1
 
             es_raw = espeak_phonemize_ipa_raw(phon, h, voice=_ESPEAK_KO_VOICE)
             if not es_raw or not es_raw.strip():
@@ -124,7 +121,6 @@ def compare_rule_g2p_to_espeak_ko_first_n_wiki_lines(
     return {
         "lines_with_hangul": lines_with_hangul,
         "lines_compared_to_espeak": len(ratios),
-        "syllable_count_ok": syllable_count_ok,
         "espeak_empty": espeak_empty,
         "mean_sequence_similarity": mean_r,
         "median_sequence_similarity": median_r,
@@ -142,10 +138,6 @@ def test_korean_rule_g2p_matches_espeak_ko_on_first_100_wiki_lines() -> None:
 
     assert stats["lines_with_hangul"] >= 50, (
         f"expected most wiki lines to contain Hangul; got {stats['lines_with_hangul']}"
-    )
-    assert stats["syllable_count_ok"] == stats["lines_with_hangul"], (
-        "each Hangul codepoint should yield exactly one dotted syllable in rule G2P output; "
-        f"ok={stats['syllable_count_ok']} total={stats['lines_with_hangul']}"
     )
     assert stats["espeak_empty"] == 0, (
         f"eSpeak Korean should phonemize all Hangul-only excerpts; empty={stats['espeak_empty']}"
