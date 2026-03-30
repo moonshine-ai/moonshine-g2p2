@@ -53,6 +53,10 @@ struct MoonshineG2POptions {
   std::optional<std::filesystem::path> japanese_dict_path;
   /// Directory with KoichiYasuoka char-LUW ONNX (``model.onnx``, ``vocab.txt``, …); default ``<model-root>/../data/ja/roberta_japanese_char_luw_upos_onnx``.
   std::optional<std::filesystem::path> japanese_onnx_model_dir;
+  /// MSA Arabic ONNX tashkīl (``model.onnx``, ``meta.json``, …); default ``<model-root>/../data/ar_msa/arabertv02_tashkeel_fadel_onnx``.
+  std::optional<std::filesystem::path> arabic_onnx_model_dir;
+  /// Arabic lexicon (optional); default ``<model-root>/../data/ar_msa/dict.tsv``.
+  std::optional<std::filesystem::path> arabic_dict_path;
   /// Portuguese rule G2P (``pt_br``, ``pt-br``, ``pt_pt``, ``portugal``, …): ``<model-root>/../data/pt_br/dict.tsv`` or ``pt_pt``.
   std::optional<std::filesystem::path> portuguese_dict_path;
   bool portuguese_with_stress = true;

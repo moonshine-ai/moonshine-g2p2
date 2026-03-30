@@ -9,6 +9,7 @@
 #include "moonshine-g2p/lang-specific/korean.h"
 #include "moonshine-g2p/lang-specific/vietnamese.h"
 #include "moonshine-g2p/lang-specific/japanese.h"
+#include "moonshine-g2p/lang-specific/arabic.h"
 #include "moonshine-g2p/lang-specific/italian.h"
 #include "moonshine-g2p/lang-specific/portuguese.h"
 #include "moonshine-g2p/lang-specific/russian.h"
@@ -110,6 +111,9 @@ bool dialect_uses_rule_based_g2p(std::string_view dialect_id, const MoonshineG2P
   if (dialect_resolves_to_japanese_rules(norm)) {
     return true;
   }
+  if (dialect_resolves_to_arabic_rules(norm)) {
+    return true;
+  }
   if (dialect_resolves_to_brazilian_portuguese_rules(norm) || dialect_resolves_to_portugal_rules(norm)) {
     return true;
   }
@@ -140,7 +144,7 @@ MoonshineG2P::MoonshineG2P(std::string dialect_id, MoonshineG2POptions options) 
 
   throw std::runtime_error(
       "MoonshineG2P: unsupported dialect \"" + trimmed +
-      "\". Only rule-based locales are supported (e.g. en_us, es-MX, de, fr, nl, it, ru, zh, ko, vi, ja, pt_br); "
+      "\". Only rule-based locales are supported (e.g. en_us, es-MX, de, fr, nl, it, ru, zh, ko, vi, ja, ar, pt_br); "
       "see dialect_uses_rule_based_g2p() and rule_based_g2p_dialect_catalog().");
 }
 

@@ -32,6 +32,7 @@ void usage(const char *argv0) {
       << "       [--chinese-dict PATH] [--chinese-onnx-dir PATH] [--korean-dict PATH] "
          "[--no-korean-expand-digits]\n"
       << "       [--japanese-dict PATH] [--japanese-onnx-dir DIR]\n"
+      << "       [--arabic-dict PATH] [--arabic-onnx-dir DIR]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
       << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
       << "       [--french-dict PATH] [--french-csv-dir DIR]\n"
@@ -59,6 +60,8 @@ void usage(const char *argv0) {
       << "  Japanese (ja, ja-JP, japanese): ONNX LUW + lexicon; default <model-root>/../data/ja/dict.tsv "
          "and <model-root>/../data/ja/roberta_japanese_char_luw_upos_onnx/; override with "
          "--japanese-dict / --japanese-onnx-dir.\n"
+      << "  Arabic (ar, ar-MSA, msa, arabic): ONNX tashkīl + rules; default <model-root>/../data/ar_msa/ "
+         "arabertv02_tashkeel_fadel_onnx + dict.tsv; override with --arabic-onnx-dir / --arabic-dict.\n"
       << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
@@ -95,6 +98,8 @@ const char *rule_based_kind_label(RuleBasedG2pKind k) {
     return "Vietnamese";
   case RuleBasedG2pKind::Japanese:
     return "Japanese";
+  case RuleBasedG2pKind::Arabic:
+    return "Arabic";
   case RuleBasedG2pKind::Portuguese:
     return "Portuguese";
   default:
@@ -161,6 +166,10 @@ int main(int argc, char **argv) {
       opt.japanese_dict_path = argv[++i];
     } else if (a == "--japanese-onnx-dir" && i + 1 < argc) {
       opt.japanese_onnx_model_dir = argv[++i];
+    } else if (a == "--arabic-dict" && i + 1 < argc) {
+      opt.arabic_dict_path = argv[++i];
+    } else if (a == "--arabic-onnx-dir" && i + 1 < argc) {
+      opt.arabic_onnx_model_dir = argv[++i];
     } else if (a == "--no-korean-expand-digits") {
       opt.korean_expand_cardinal_digits = false;
     } else if (a == "--russian-dict" && i + 1 < argc) {
