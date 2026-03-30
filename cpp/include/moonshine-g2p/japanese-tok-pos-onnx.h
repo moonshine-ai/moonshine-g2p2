@@ -1,5 +1,5 @@
-#ifndef MOONSHINE_G2P_KOREAN_TOK_POS_ONNX_H
-#define MOONSHINE_G2P_KOREAN_TOK_POS_ONNX_H
+#ifndef MOONSHINE_G2P_JAPANESE_TOK_POS_ONNX_H
+#define MOONSHINE_G2P_JAPANESE_TOK_POS_ONNX_H
 
 #include <onnxruntime_cxx_api.h>
 
@@ -12,17 +12,17 @@
 
 namespace moonshine_g2p {
 
-/// Korean whitespace-level words + UD UPOS via ONNX (``KoichiYasuoka/roberta-base-korean-morph-upos``),
-/// mirroring ``korean_tok_pos.KoreanTokPosOnnx`` / ``encode_for_morph_upos`` + WordPiece from
-/// ``data/ko/roberta_korean_morph_upos_onnx/``.
-class KoreanTokPosOnnx {
+/// Japanese LUW surfaces + UD UPOS via ONNX (``KoichiYasuoka/roberta-small-japanese-char-luw-upos``),
+/// mirroring ``japanese_tok_pos.JapaneseTokPosOnnx`` / ``encode_for_morph_upos`` + WordPiece from
+/// ``data/ja/roberta_japanese_char_luw_upos_onnx/``.
+class JapaneseTokPosOnnx {
  public:
-  explicit KoreanTokPosOnnx(std::filesystem::path model_dir, bool use_cuda = false);
+  explicit JapaneseTokPosOnnx(std::filesystem::path model_dir, bool use_cuda = false);
 
   /// One ``(surface, UPOS)`` per whitespace/punctuation word (empty input → empty list).
   std::vector<std::pair<std::string, std::string>> annotate(std::string_view text_utf8);
 
-  /// Same string form as ``korean_tok_pos`` CLI: ``tok1/UPOS1 tok2/UPOS2 `` (trailing space if non-empty).
+  /// Same string form as ``japanese_tok_pos`` CLI: ``tok1/UPOS1 tok2/UPOS2 `` (trailing space if non-empty).
   static std::string format_annotated_line(const std::vector<std::pair<std::string, std::string>>& pairs);
 
   const std::filesystem::path& model_dir() const { return model_dir_; }
@@ -38,9 +38,9 @@ class KoreanTokPosOnnx {
   std::string logits_output_name_;
 };
 
-/// ``<repo>/data/ko/roberta_korean_morph_upos_onnx`` when *repo_root* is the repository root.
-std::filesystem::path default_korean_tok_pos_model_dir(const std::filesystem::path& repo_root);
+/// ``<repo>/data/ja/roberta_japanese_char_luw_upos_onnx`` when *repo_root* is the repository root.
+std::filesystem::path default_japanese_tok_pos_model_dir(const std::filesystem::path& repo_root);
 
 }  // namespace moonshine_g2p
 
-#endif  // MOONSHINE_G2P_KOREAN_TOK_POS_ONNX_H
+#endif  // MOONSHINE_G2P_JAPANESE_TOK_POS_ONNX_H

@@ -8,6 +8,7 @@
 #include "moonshine-g2p/lang-specific/german.h"
 #include "moonshine-g2p/lang-specific/chinese.h"
 #include "moonshine-g2p/lang-specific/korean.h"
+#include "moonshine-g2p/lang-specific/japanese.h"
 #include "moonshine-g2p/lang-specific/italian.h"
 #include "moonshine-g2p/lang-specific/portuguese.h"
 #include "moonshine-g2p/lang-specific/russian.h"
@@ -306,6 +307,34 @@ std::optional<RuleBasedG2pInstance> try_korean(std::string_view trimmed,
   return out;
 }
 
+std::optional<RuleBasedG2pInstance> try_japanese(std::string_view trimmed,
+                                                 const MoonshineG2POptions& options) {
+  if (!dialect_resolves_to_japanese_rules(trimmed)) {
+    return std::nullopt;
+  }
+  const std::filesystem::path mdir =
+      options.japanese_onnx_model_dir.value_or(resolve_japanese_onnx_model_dir(options.model_root));
+  const std::filesystem::path jdict =
+      options.japanese_dict_path.value_or(resolve_japanese_dict_path(options.model_root));
+  const auto onnx = mdir / "model.onnx";
+  if (!std::filesystem::is_regular_file(onnx)) {
+    throw std::runtime_error(
+        "Japanese G2P: ONNX bundle not found at " + onnx.generic_string() +
+        " (set MoonshineG2POptions::japanese_onnx_model_dir or export the char-LUW model to "
+        "data/ja/roberta_japanese_char_luw_upos_onnx/)");
+  }
+  if (!std::filesystem::is_regular_file(jdict)) {
+    throw std::runtime_error(
+        "Japanese G2P: lexicon not found at " + jdict.generic_string() +
+        " (set MoonshineG2POptions::japanese_dict_path)");
+  }
+  RuleBasedG2pInstance out;
+  out.canonical_dialect_id = "ja-JP";
+  out.kind = RuleBasedG2pKind::Japanese;
+  out.engine = std::make_unique<JapaneseRuleG2p>(mdir, jdict, options.use_cuda);
+  return out;
+}
+
 std::optional<RuleBasedG2pInstance> try_portuguese(std::string_view trimmed,
                                                   const MoonshineG2POptions& options) {
   const bool want_pt_br = dialect_resolves_to_brazilian_portuguese_rules(trimmed);
@@ -347,6 +376,7 @@ const TryFn kTryChain[] = {
     try_russian,
     try_chinese,
     try_korean,
+    try_japanese,
     try_portuguese,
 };
 
@@ -377,6 +407,7 @@ std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> rule_based_g2
   out.emplace_back(RuleBasedG2pKind::Russian, RussianRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Chinese, ChineseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Korean, KoreanRuleG2p::dialect_ids());
+  out.emplace_back(RuleBasedG2pKind::Japanese, JapaneseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Portuguese, PortugueseRuleG2p::dialect_ids());
   return out;
 }

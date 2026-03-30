@@ -27,6 +27,7 @@ void usage(const char *argv0) {
       << "       [--german-dict PATH] [--german-syllable-initial-stress]\n"
       << "       [--russian-dict PATH] [--russian-syllable-initial-stress]\n"
       << "       [--chinese-dict PATH] [--korean-dict PATH] [--no-korean-expand-digits]\n"
+      << "       [--japanese-dict PATH] [--japanese-onnx-dir DIR]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
       << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
       << "       [--french-dict PATH] [--french-csv-dir DIR]\n"
@@ -49,6 +50,9 @@ void usage(const char *argv0) {
          "or <model-root>/zh_hans/dict.tsv; override with --chinese-dict.\n"
       << "  Korean (ko, ko-KR, korean): rule-based G2P; default <model-root>/../data/ko/dict.tsv "
          "or <model-root>/ko/dict.tsv; override with --korean-dict.\n"
+      << "  Japanese (ja, ja-JP, japanese): ONNX LUW + lexicon; default <model-root>/../data/ja/dict.tsv "
+         "and <model-root>/../data/ja/roberta_japanese_char_luw_upos_onnx/; override with "
+         "--japanese-dict / --japanese-onnx-dir.\n"
       << "  Portuguese (pt_br, pt-br, pt_pt, portugal, …): rule-based G2P; default "
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
@@ -104,6 +108,10 @@ int main(int argc, char **argv) {
       opt.chinese_dict_path = argv[++i];
     } else if (a == "--korean-dict" && i + 1 < argc) {
       opt.korean_dict_path = argv[++i];
+    } else if (a == "--japanese-dict" && i + 1 < argc) {
+      opt.japanese_dict_path = argv[++i];
+    } else if (a == "--japanese-onnx-dir" && i + 1 < argc) {
+      opt.japanese_onnx_model_dir = argv[++i];
     } else if (a == "--no-korean-expand-digits") {
       opt.korean_expand_cardinal_digits = false;
     } else if (a == "--russian-dict" && i + 1 < argc) {

@@ -45,6 +45,10 @@ struct MoonshineG2POptions {
   /// Korean rule G2P (``ko``, ``ko-KR``, …): ``<model-root>/../data/ko/dict.tsv`` or ``<model-root>/ko/dict.tsv``.
   std::optional<std::filesystem::path> korean_dict_path;
   bool korean_expand_cardinal_digits = true;
+  /// Japanese ONNX G2P (``ja``, ``ja-JP``, …): lexicon ``<model-root>/../data/ja/dict.tsv`` or ``<model-root>/ja/dict.tsv``.
+  std::optional<std::filesystem::path> japanese_dict_path;
+  /// Directory with KoichiYasuoka char-LUW ONNX (``model.onnx``, ``vocab.txt``, …); default ``<model-root>/../data/ja/roberta_japanese_char_luw_upos_onnx``.
+  std::optional<std::filesystem::path> japanese_onnx_model_dir;
   /// Portuguese rule G2P (``pt_br``, ``pt-br``, ``pt_pt``, ``portugal``, …): ``<model-root>/../data/pt_br/dict.tsv`` or ``pt_pt``.
   std::optional<std::filesystem::path> portuguese_dict_path;
   bool portuguese_with_stress = true;

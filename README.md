@@ -18,7 +18,8 @@ mkdir -p build
 cd build
 cmake ..
 cmake --build .
-./moonshine_g2p --model-root ../models --dialect en_us "Live, laugh, love"
+./moonshine_g2p --model-root ../models --language en_us "Live, laugh, love"
+./moonshine_g2p --model-root ../models --language ja "東京に行きます。"
 ```
 
 ## Acknowledgements
@@ -34,3 +35,5 @@ https://github.com/LuminosoInsight/mecab-ko-dic
 https://github.com/KoichiYasuoka/esupar
 
 https://huggingface.co/KoichiYasuoka/roberta-base-korean-morph-upos
+
+https://huggingface.co/KoichiYasuoka/roberta-small-japanese-char-luw-upos

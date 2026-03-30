@@ -1,4 +1,4 @@
-#include "moonshine-g2p/korean-tok-pos-onnx.h"
+#include "moonshine-g2p/japanese-tok-pos-onnx.h"
 #include "moonshine-g2p/utf8-utils.h"
 
 #include <nlohmann/json.hpp>
@@ -270,7 +270,7 @@ void align_basic_tokens_u32(const std::u32string& ref, const std::vector<std::u3
       ++cursor;
     }
     if (cursor + btok.size() > ref.size() || ref.compare(cursor, btok.size(), btok) != 0) {
-      throw std::runtime_error("Korean WordPiece: basic token alignment failed at offset " +
+      throw std::runtime_error("Japanese WordPiece: basic token alignment failed at offset " +
                                std::to_string(cursor));
     }
     cursor += btok.size();
@@ -378,7 +378,7 @@ EncodedWp encode_bert_wordpiece(const std::u32string& text_u32,
       }
       if (static_cast<std::size_t>(cur) + raw.size() > ref.size() ||
           ref.compare(static_cast<std::size_t>(cur), raw.size(), raw) != 0) {
-        throw std::runtime_error("Korean WordPiece: subword span mismatch");
+        throw std::runtime_error("Japanese WordPiece: subword span mismatch");
       }
       tokens_utf8.push_back(wpt8);
       offsets_cp.push_back({cur, cur + static_cast<int>(raw.size())});
@@ -541,25 +541,25 @@ std::unordered_map<std::string, int64_t> load_vocab_txt(const std::filesystem::p
 
 }  // namespace
 
-std::filesystem::path default_korean_tok_pos_model_dir(const std::filesystem::path& repo_root) {
-  return repo_root / "data" / "ko" / "roberta_korean_morph_upos_onnx";
+std::filesystem::path default_japanese_tok_pos_model_dir(const std::filesystem::path& repo_root) {
+  return repo_root / "data" / "ja" / "roberta_japanese_char_luw_upos_onnx";
 }
 
-KoreanTokPosOnnx::KoreanTokPosOnnx(std::filesystem::path model_dir, bool use_cuda)
-    : env_(ORT_LOGGING_LEVEL_WARNING, "moonshine_korean_tok_pos"),
+JapaneseTokPosOnnx::JapaneseTokPosOnnx(std::filesystem::path model_dir, bool use_cuda)
+    : env_(ORT_LOGGING_LEVEL_WARNING, "moonshine_japanese_tok_pos"),
       mem_(Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault)),
       model_dir_(std::move(model_dir)) {
   const auto vocab_path = model_dir_ / "vocab.txt";
   const auto cfg_path = model_dir_ / "tokenizer_config.json";
   const auto meta_path = model_dir_ / "meta.json";
   if (!std::filesystem::is_regular_file(vocab_path)) {
-    throw std::runtime_error("KoreanTokPosOnnx: missing " + vocab_path.string());
+    throw std::runtime_error("JapaneseTokPosOnnx: missing " + vocab_path.string());
   }
   if (!std::filesystem::is_regular_file(cfg_path)) {
-    throw std::runtime_error("KoreanTokPosOnnx: missing " + cfg_path.string());
+    throw std::runtime_error("JapaneseTokPosOnnx: missing " + cfg_path.string());
   }
   if (!std::filesystem::is_regular_file(meta_path)) {
-    throw std::runtime_error("KoreanTokPosOnnx: missing " + meta_path.string());
+    throw std::runtime_error("JapaneseTokPosOnnx: missing " + meta_path.string());
   }
 
   std::ifstream meta_in(meta_path);
@@ -572,7 +572,7 @@ KoreanTokPosOnnx::KoreanTokPosOnnx(std::filesystem::path model_dir, bool use_cud
   const std::string onnx_name = meta.value("onnx_model_file", std::string("model.onnx"));
   const auto onnx_path = model_dir_ / onnx_name;
   if (!std::filesystem::is_regular_file(onnx_path)) {
-    throw std::runtime_error("KoreanTokPosOnnx: missing " + onnx_path.string());
+    throw std::runtime_error("JapaneseTokPosOnnx: missing " + onnx_path.string());
   }
 
   session_ = open_session(env_, onnx_path, use_cuda);
@@ -583,7 +583,7 @@ KoreanTokPosOnnx::KoreanTokPosOnnx(std::filesystem::path model_dir, bool use_cud
   }
 }
 
-std::string KoreanTokPosOnnx::format_annotated_line(
+std::string JapaneseTokPosOnnx::format_annotated_line(
     const std::vector<std::pair<std::string, std::string>>& pairs) {
   std::string s;
   for (const auto& pr : pairs) {
@@ -595,7 +595,7 @@ std::string KoreanTokPosOnnx::format_annotated_line(
   return s;
 }
 
-std::vector<std::pair<std::string, std::string>> KoreanTokPosOnnx::annotate(std::string_view text_utf8) {
+std::vector<std::pair<std::string, std::string>> JapaneseTokPosOnnx::annotate(std::string_view text_utf8) {
   std::string trimmed = trim_ascii_ws_copy(text_utf8);
   if (trimmed.empty()) {
     return {};
@@ -621,7 +621,7 @@ std::vector<std::pair<std::string, std::string>> KoreanTokPosOnnx::annotate(std:
 
   const int64_t T = static_cast<int64_t>(enc.input_ids.size());
   if (T > max_sequence_length_) {
-    throw std::runtime_error("KoreanTokPosOnnx: sequence length > max_sequence_length not supported");
+    throw std::runtime_error("JapaneseTokPosOnnx: sequence length > max_sequence_length not supported");
   }
 
   std::vector<int64_t> ids = enc.input_ids;
@@ -647,11 +647,11 @@ std::vector<std::pair<std::string, std::string>> KoreanTokPosOnnx::annotate(std:
   const auto info = outputs[0].GetTensorTypeAndShapeInfo();
   const auto oshape = info.GetShape();
   if (oshape.size() != 3 || oshape[0] != 1 || oshape[1] != T) {
-    throw std::runtime_error("KoreanTokPosOnnx: unexpected logits shape");
+    throw std::runtime_error("JapaneseTokPosOnnx: unexpected logits shape");
   }
   const int64_t num_labels = oshape[2];
   if (num_labels != static_cast<int64_t>(id2label_.size())) {
-    throw std::runtime_error("KoreanTokPosOnnx: logits last dim != id2label size");
+    throw std::runtime_error("JapaneseTokPosOnnx: logits last dim != id2label size");
   }
 
   std::vector<std::pair<std::string, std::string>> pairs;
