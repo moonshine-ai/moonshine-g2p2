@@ -34,9 +34,11 @@ Dependencies::
     UTF-8, NFC keys; duplicate spellings keep the first line.
 
 Limitations::
-    Palatalization of verb stems, lexicalized exceptions to tensification, precise coda
-    allophones, and English digits/letters are only lightly handled. Output is **broad**
-    IPA suitable for lexicon/TTS prototyping, not narrow transcription.
+    Palatalization of verb stems, lexicalized exceptions to tensification, and precise coda
+    allophones. **ASCII numeral tokens** (optional sign; ``.``/``,`` decimals) expand to
+    Sino-Korean Hangul via :mod:`korean_numbers` (see ``expand_cardinal_digits``). Latin
+    letters outside the lexicon are still skipped. Output is **broad** IPA suitable for
+    lexicon/TTS prototyping, not narrow transcription.
 
 CLI: ``--verbose`` prints a rough Hangul/Latin run split for debugging (not morph analysis).
 """
@@ -48,6 +50,8 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
+
+from korean_numbers import korean_reading_fragments_from_ascii_numeral_token
 
 _REPO_ROOT = Path(__file__).resolve().parent
 _DEFAULT_KO_DICT = _REPO_ROOT / "data" / "ko" / "dict.tsv"
@@ -337,6 +341,21 @@ def _extract_hangul(s: str) -> str:
     return "".join(ch for ch in unicodedata.normalize("NFC", s) if "\uac00" <= ch <= "\ud7a3")
 
 
+def _g2p_single_fragment(frag: str, lex: dict[str, str], syllable_sep: str) -> str:
+    """Lexicon hit (any NFC key) or Hangul-only substring → IPA; else rule G2P on Hangul."""
+    f = unicodedata.normalize("NFC", frag.strip())
+    if not f:
+        return ""
+    if f in lex:
+        return lex[f]
+    h = _extract_hangul(f)
+    if not h:
+        return ""
+    if h in lex:
+        return lex[h]
+    return _g2p_hangul_rules_only(h, syllable_sep)
+
+
 def _g2p_hangul_rules_only(hangul: str, syllable_sep: str) -> str:
     """Rule G2P on a Hangul-only string (may be multiple syllables)."""
     if not hangul:
@@ -573,6 +592,7 @@ def korean_g2p(
     *,
     syllable_sep: str = ".",
     dict_path: Path | str | None = None,
+    expand_cardinal_digits: bool = True,
     **kwargs: object,
 ) -> str:
     """
@@ -582,6 +602,10 @@ def korean_g2p(
     **full** lexicon key, uses the stored (normalized) IPA; otherwise runs the rule pipeline
     on that token (OOV). Chunks are joined with a space. All IPA is normalized with
     :func:`normalize_korean_ipa`.
+
+    When *expand_cardinal_digits* is True (default), tokens that are plain ASCII numerals
+    (optional ``+``/``-``; ``.`` or ``,`` as decimal point; thousands separators stripped)
+    are converted to Sino-Korean Hangul (and ``마이너스`` for negatives) before lookup/rules.
 
     Raises:
         FileNotFoundError: if the lexicon file is missing.
@@ -601,6 +625,13 @@ def korean_g2p(
     lex = load_korean_lexicon(dict_path)
     ipa_words: list[str] = []
     for w in raw.split():
+        frags = korean_reading_fragments_from_ascii_numeral_token(w) if expand_cardinal_digits else None
+        if frags:
+            for frag in frags:
+                ipa = _g2p_single_fragment(frag, lex, syllable_sep)
+                if ipa:
+                    ipa_words.append(ipa)
+            continue
         h = _extract_hangul(w)
         if not h:
             continue
@@ -622,6 +653,11 @@ def main() -> None:
         help=f"Lexicon TSV (required; default: {_DEFAULT_KO_DICT}).",
     )
     ap.add_argument("--sep", default=".", help="Syllable separator for rule-based chunks (default: period).")
+    ap.add_argument(
+        "--no-expand-digits",
+        action="store_true",
+        help="Do not expand ASCII numeral tokens to Sino-Korean Hangul.",
+    )
     args = ap.parse_args()
     if args.text:
         raw = " ".join(args.text)
@@ -633,7 +669,12 @@ def main() -> None:
         print(text_tokenization_debug(raw))
         print("---")
     dp = Path(args.dict_path) if args.dict_path else None
-    ipa = korean_g2p(raw, syllable_sep=args.sep, dict_path=dp)
+    ipa = korean_g2p(
+        raw,
+        syllable_sep=args.sep,
+        dict_path=dp,
+        expand_cardinal_digits=not args.no_expand_digits,
+    )
     print(ipa)
 
 

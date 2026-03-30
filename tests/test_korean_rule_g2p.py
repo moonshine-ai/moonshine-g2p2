@@ -17,6 +17,7 @@ from korean_rule_g2p import (
     text_to_syllables,
     text_to_syllables_scan,
 )
+from korean_numbers import int_to_sino_korean_hangul, korean_reading_fragments_from_ascii_numeral_token
 
 _REPO = Path(__file__).resolve().parents[1]
 _KO_DICT = _REPO / "data" / "ko" / "dict.tsv"
@@ -92,3 +93,33 @@ def test_load_korean_lexicon_raises_without_file(tmp_path: Path) -> None:
     missing = tmp_path / "nope.tsv"
     with pytest.raises(FileNotFoundError):
         load_korean_lexicon(missing)
+
+
+def test_int_to_sino_korean_hangul() -> None:
+    assert int_to_sino_korean_hangul(0) == "영"
+    assert int_to_sino_korean_hangul(10) == "십"
+    assert int_to_sino_korean_hangul(42) == "사십이"
+    assert int_to_sino_korean_hangul(105) == "백오"
+    assert int_to_sino_korean_hangul(1234) == "천이백삼십사"
+    assert int_to_sino_korean_hangul(10000) == "만"
+    assert int_to_sino_korean_hangul(100010000) == "일억만"
+    assert int_to_sino_korean_hangul(102030400) == "일억이백삼만사백"
+
+
+def test_korean_reading_fragments_from_ascii_numeral_token() -> None:
+    assert korean_reading_fragments_from_ascii_numeral_token("1,234") == ["천이백삼십사"]
+    assert korean_reading_fragments_from_ascii_numeral_token("3.14") == ["삼점일사"]
+    assert korean_reading_fragments_from_ascii_numeral_token("3,14") == ["삼점일사"]
+    assert korean_reading_fragments_from_ascii_numeral_token("-10") == ["마이너스", "십"]
+    assert korean_reading_fragments_from_ascii_numeral_token("007") == ["영영칠"]
+    assert korean_reading_fragments_from_ascii_numeral_token("12a") is None
+
+
+def test_korean_g2p_expands_ascii_digits() -> None:
+    lex = load_korean_lexicon(_KO_DICT)
+    assert korean_g2p("42", dict_path=_KO_DICT) == lex["사십이"]
+    assert korean_g2p("0", dict_path=_KO_DICT) == lex["영"]
+    assert korean_g2p("-10", dict_path=_KO_DICT) == f'{lex["마이너스"]} {lex["십"]}'
+    assert korean_g2p("007", dict_path=_KO_DICT) == "jʌŋ.jʌŋ.tɕil"
+    assert korean_g2p("3.14", dict_path=_KO_DICT) == "sam.tɕʌ.mil.sa"
+    assert korean_g2p("42", dict_path=_KO_DICT, expand_cardinal_digits=False) == ""
