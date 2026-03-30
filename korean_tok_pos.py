@@ -1,100 +1,82 @@
 #!/usr/bin/env python3
 """
-Korean tokenization + Universal Dependencies UPOS using ONNX Runtime and NumPy.
+Korean whitespace-level words + Universal Dependencies UPOS via ONNX Runtime.
 
-Requires exported assets under ``data/ko/hanlp_ud_onnx/`` (run
-``python scripts/export_korean_ud_onnx.py``). Dependencies: ``onnxruntime``,
-``numpy``, ``tokenizers``.
+Uses ``KoichiYasuoka/roberta-base-korean-morph-upos`` (RoBERTa token classification),
+exported to ONNX.
 
-There is **no** PyTorch or HanLP on this code path.
+**Runtime dependencies:** ``onnxruntime``, ``numpy`` only (plus stdlib). Tokenization is pure
+Python WordPiece from ``vocab.txt`` + ``tokenizer_config.json`` in the model directory.
+
+Assets default to ``data/ko/roberta_korean_morph_upos_onnx/`` (run
+``python scripts/export_korean_ud_onnx.py``).
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 from typing import List, Sequence, Tuple, Union
 
 import numpy as np
 import onnxruntime as ort
 
-from ko_ud_mminilm_preprocess import build_tok_batch
-from ko_ud_numpy_heads import adaptive_log_prob, bmes_to_words, load_heads, pool_word_hidden, tok_logits
+from ko_roberta_morph_preprocess import encode_for_morph_upos, morph_label_to_upos
 
 _REPO_ROOT = Path(__file__).resolve().parent
-_DEFAULT_MODEL_DIR = _REPO_ROOT / "data" / "ko" / "hanlp_ud_onnx"
-
-
-def _pick_token_hidden(subword_h: np.ndarray, token_span: Sequence[Sequence[int]]) -> np.ndarray:
-    """Average subword vectors for each span row (CLS / chars / SEP)."""
-    rows: List[np.ndarray] = []
-    for g in token_span:
-        rows.append(subword_h[g].mean(axis=0))
-    return np.stack(rows, axis=0)
-
-
-def _word_row_spans_from_units(units: Sequence[str], words: Sequence[str]) -> List[Tuple[int, int]]:
-    """Map each segmented word to half-open row ranges in ``char_h`` (row 0 = CLS)."""
-    idx = 0
-    spans: List[Tuple[int, int]] = []
-    for w in words:
-        buf = ""
-        start = idx
-        while buf != w:
-            if idx >= len(units):
-                raise ValueError(f"BMES word {w!r} does not align with units {units!r}")
-            buf += units[idx]
-            idx += 1
-        spans.append((1 + start, 1 + idx))
-    if idx != len(units):
-        raise ValueError("BMES segmentation does not consume all units")
-    return spans
+_DEFAULT_MODEL_DIR = _REPO_ROOT / "data" / "ko" / "roberta_korean_morph_upos_onnx"
 
 
 class KoreanTokPosOnnx:
     def __init__(self, model_dir: Path | None = None, *, providers: Sequence[str] | None = None):
         self.model_dir = Path(model_dir) if model_dir is not None else _DEFAULT_MODEL_DIR
-        tok_path = self.model_dir / "tokenizer.json"
-        if not tok_path.is_file():
-            raise FileNotFoundError(
-                f"Missing {tok_path}; run scripts/export_korean_ud_onnx.py or copy tokenizer assets."
-            )
-        self._tokenizer_json = str(tok_path)
-        self.meta, self.weights = load_heads(self.model_dir)
+        for name in ("vocab.txt", "tokenizer_config.json"):
+            p = self.model_dir / name
+            if not p.is_file():
+                raise FileNotFoundError(
+                    f"Missing {p}; run scripts/export_korean_ud_onnx.py (exports vocab + config)."
+                )
+        meta_path = self.model_dir / "meta.json"
+        if not meta_path.is_file():
+            raise FileNotFoundError(f"Missing {meta_path}")
+        self._meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        self._id2label: List[str] = self._meta["id2label"]
+        self._pad_id = int(self._meta.get("pad_token_id", 1))
+
+        onnx_name = self._meta.get("onnx_model_file", "model.onnx")
+        onnx_path = self.model_dir / onnx_name
+        if not onnx_path.is_file():
+            raise FileNotFoundError(f"Missing {onnx_path}")
         so = ort.SessionOptions()
         so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         prov = list(providers) if providers else ort.get_available_providers()
-        self._sess = ort.InferenceSession(
-            str(self.model_dir / "encoder.onnx"),
-            sess_options=so,
-            providers=prov,
-        )
+        self._sess = ort.InferenceSession(str(onnx_path), sess_options=so, providers=prov)
+        outs = self._sess.get_outputs()
+        self._logits_output = outs[0].name
 
     def annotate(self, text: str) -> List[Tuple[str, str]]:
-        if not text:
+        if not text.strip():
             return []
-        input_ids, token_span, units = build_tok_batch(text, self._tokenizer_json)
+        input_ids, _tokens, offsets, ref_text, word_groups = encode_for_morph_upos(text, self.model_dir)
         ids = np.array([input_ids], dtype=np.int64)
-        mask = (ids != self.meta["pad_token_id"]).astype(np.int64)
-        h_sub, = self._sess.run(
-            ["last_hidden_state"],
+        mask = (ids != self._pad_id).astype(np.int64)
+        logits, = self._sess.run(
+            [self._logits_output],
             {"input_ids": ids, "attention_mask": mask},
         )
-        h_sub = np.asarray(h_sub, dtype=np.float32)[0]
-        char_h = _pick_token_hidden(h_sub, token_span)
-        mid = char_h[1:-1]
-        tl = tok_logits(mid, self.weights["tok_w"], self.weights["tok_b"])
-        tag_ids = np.argmax(tl, axis=-1)
-        tags_bm = [self.meta["tag_id_to_label"][int(i)] for i in tag_ids]
-        words = bmes_to_words(units, tags_bm)
-        spans = _word_row_spans_from_units(units, words)
-        ud_h = pool_word_hidden(char_h, spans)
-        lp = adaptive_log_prob(ud_h.astype(np.float32), self.meta, self.weights)
-        upos_labels = self.meta["upos_id_to_label"]
+        logits = np.asarray(logits, dtype=np.float32)[0]
         pairs: List[Tuple[str, str]] = []
-        for i in range(1, lp.shape[0]):
-            pid = int(np.argmax(lp[i]))
-            pairs.append((words[i - 1], upos_labels[pid]))
+        for g in word_groups:
+            if not g:
+                continue
+            pooled = logits[g].mean(axis=0)
+            lid = int(np.argmax(pooled))
+            raw_label = self._id2label[lid]
+            upos = morph_label_to_upos(raw_label)
+            st = offsets[g[0]][0]
+            en = offsets[g[-1]][1]
+            pairs.append((ref_text[st:en], upos))
         return pairs
 
 
@@ -107,7 +89,9 @@ def korean_tok_upos(
     """
     Tokenize and tag UPOS for one string or a list of strings.
 
-    Returns one list of ``(token, upos)`` pairs per input sentence.
+    Returns one list of ``(token, upos)`` pairs per input sentence (whitespace / punct
+    segmented surface strings). Surfaces are taken from the same NFC-normalized working string
+    used for WordPiece alignment (see :mod:`ko_roberta_wordpiece`).
     """
     pipe = onnx_session or KoreanTokPosOnnx(model_dir=model_dir)
     if isinstance(text, str):
@@ -116,7 +100,7 @@ def korean_tok_upos(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Korean tok + UPOS (ONNX + NumPy).")
+    p = argparse.ArgumentParser(description="Korean words + UPOS (ONNX RoBERTa morph-upos).")
     p.add_argument("text", nargs="?", default="대한민국의 수도는 서울이다.")
     p.add_argument("--model-dir", type=Path, default=None)
     args = p.parse_args()
