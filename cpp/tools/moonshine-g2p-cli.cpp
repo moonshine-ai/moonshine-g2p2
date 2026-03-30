@@ -4,6 +4,7 @@
 #include "moonshine-g2p/moonshine-g2p.h"
 
 #include <cstdlib>
+#include <cstring>
 #include <iostream>
 #include <sstream>
 #include <string>
@@ -11,8 +12,10 @@
 
 using moonshine_g2p::MoonshineG2P;
 using moonshine_g2p::MoonshineG2POptions;
+using moonshine_g2p::RuleBasedG2pKind;
 using moonshine_g2p::dialect_uses_rule_based_g2p;
 using moonshine_g2p::format_g2p_word_log_line;
+using moonshine_g2p::rule_based_g2p_dialect_catalog;
 using moonshine_g2p::spanish_dialect_cli_ids;
 
 namespace {
@@ -66,6 +69,47 @@ std::string read_all_stdin() {
   std::ostringstream oss;
   oss << std::cin.rdbuf();
   return oss.str();
+}
+
+const char *rule_based_kind_label(RuleBasedG2pKind k) {
+  switch (k) {
+  case RuleBasedG2pKind::English:
+    return "English";
+  case RuleBasedG2pKind::Spanish:
+    return "Spanish";
+  case RuleBasedG2pKind::German:
+    return "German";
+  case RuleBasedG2pKind::French:
+    return "French";
+  case RuleBasedG2pKind::Dutch:
+    return "Dutch";
+  case RuleBasedG2pKind::Italian:
+    return "Italian";
+  case RuleBasedG2pKind::Russian:
+    return "Russian";
+  case RuleBasedG2pKind::Chinese:
+    return "Chinese";
+  case RuleBasedG2pKind::Korean:
+    return "Korean";
+  case RuleBasedG2pKind::Vietnamese:
+    return "Vietnamese";
+  case RuleBasedG2pKind::Japanese:
+    return "Japanese";
+  case RuleBasedG2pKind::Portuguese:
+    return "Portuguese";
+  default:
+    return "Unknown";
+  }
+}
+
+void print_rule_based_dialect_catalog(std::ostream &os) {
+  os << "\nSupported languages and dialect ids (pass with --language):\n\n";
+  for (const auto &entry : rule_based_g2p_dialect_catalog()) {
+    os << "  " << rule_based_kind_label(entry.first) << '\n';
+    for (const std::string &id : entry.second) {
+      os << "      " << id << '\n';
+    }
+  }
 }
 
 }  // namespace
@@ -200,6 +244,9 @@ int main(int argc, char **argv) {
     }
   } catch (const std::exception &e) {
     std::cerr << "error: " << e.what() << '\n';
+    if (std::strstr(e.what(), "unsupported dialect") != nullptr) {
+      print_rule_based_dialect_catalog(std::cerr);
+    }
     return 1;
   }
   return 0;

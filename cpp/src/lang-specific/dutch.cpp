@@ -1421,18 +1421,15 @@ std::filesystem::path resolve_dutch_dict_path(const std::filesystem::path& model
 }
 
 bool dialect_resolves_to_dutch_rules(std::string_view dialect_id) {
-  std::string s = trim_ascii_ws_copy(dialect_id);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
   }
   return s == "nl" || s == "nl-nl" || s == "dutch";
 }
 
 std::vector<std::string> DutchRuleG2p::dialect_ids() {
-  return {"nl", "nl-NL", "nl_nl", "dutch"};
+  return dedupe_dialect_ids_preserve_first({"nl", "nl-NL", "nl_nl", "dutch"});
 }
 
 std::string DutchRuleG2p::normalize_ipa_stress_for_vocoder(std::string ipa) {

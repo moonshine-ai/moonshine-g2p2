@@ -1208,18 +1208,15 @@ std::string GermanRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>
 }
 
 bool dialect_resolves_to_german_rules(std::string_view dialect_id) {
-  std::string s = trim_ascii_ws_copy(dialect_id);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
   }
   return s == "de" || s == "de-de" || s == "german";
 }
 
 std::vector<std::string> GermanRuleG2p::dialect_ids() {
-  return {"de", "de-DE", "de_de", "german"};
+  return dedupe_dialect_ids_preserve_first({"de", "de-DE", "de_de", "german"});
 }
 
 }  // namespace moonshine_g2p

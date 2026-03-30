@@ -40,6 +40,7 @@ TEST_CASE("english: dialect_resolves_to_english_rules") {
   using moonshine_g2p::dialect_resolves_to_english_rules;
   CHECK(dialect_resolves_to_english_rules("en_us"));
   CHECK(dialect_resolves_to_english_rules("en-US"));
+  CHECK(dialect_resolves_to_english_rules("EN_US"));
   CHECK(dialect_resolves_to_english_rules("english"));
   CHECK_FALSE(dialect_resolves_to_english_rules("de"));
 }

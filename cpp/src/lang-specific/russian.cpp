@@ -1103,18 +1103,15 @@ std::string RussianRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog
 }
 
 bool dialect_resolves_to_russian_rules(std::string_view dialect_id) {
-  std::string s = trim_ascii_ws_copy(dialect_id);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
   }
   return s == "ru" || s == "ru-ru" || s == "russian";
 }
 
 std::vector<std::string> RussianRuleG2p::dialect_ids() {
-  return {"ru", "ru-RU", "ru_ru", "russian"};
+  return dedupe_dialect_ids_preserve_first({"ru", "ru-RU", "ru_ru", "russian"});
 }
 
 std::filesystem::path resolve_russian_dict_path(const std::filesystem::path& model_root) {

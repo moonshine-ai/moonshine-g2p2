@@ -771,7 +771,7 @@ std::vector<std::string> spanish_dialect_cli_ids() {
 }
 
 std::vector<std::string> SpanishRuleG2p::dialect_ids() {
-  return spanish_dialect_cli_ids();
+  return dedupe_dialect_ids_preserve_first(spanish_dialect_cli_ids());
 }
 
 SpanishDialect spanish_dialect_from_cli_id(const std::string &cli_id, bool narrow_intervocalic_obstruents) {

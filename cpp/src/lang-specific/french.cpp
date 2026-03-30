@@ -1255,18 +1255,15 @@ std::string FrenchRuleG2p::text_to_ipa_impl(const std::string& text, bool expand
 }
 
 bool dialect_resolves_to_french_rules(std::string_view dialect_id) {
-  std::string s = trim_ascii_ws_copy(dialect_id);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
   }
   return s == "fr" || s == "fr-fr" || s == "french";
 }
 
 std::vector<std::string> FrenchRuleG2p::dialect_ids() {
-  return {"fr", "fr-FR", "fr_fr", "french"};
+  return dedupe_dialect_ids_preserve_first({"fr", "fr-FR", "fr_fr", "french"});
 }
 
 }  // namespace moonshine_g2p

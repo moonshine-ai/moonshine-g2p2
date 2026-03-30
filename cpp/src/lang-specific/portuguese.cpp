@@ -564,33 +564,27 @@ std::string PortugueseRuleG2p::text_to_ipa(std::string text, std::vector<G2pWord
   return text_to_ipa_no_expand(text, per_word_log);
 }
 
-static std::string norm_pt_dialect_key(std::string_view raw) {
-  std::string s(trim_ascii_ws_copy(raw));
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  }
-  return s;
-}
-
 bool dialect_resolves_to_portugal_rules(std::string_view dialect_id) {
-  const std::string s = norm_pt_dialect_key(dialect_id);
-  return s == "pt-pt" || s == "pt_pt" || s == "portugal" || s == "european-portuguese" ||
-         s == "europeanportuguese";
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
+  }
+  return s == "pt-pt" || s == "portugal" || s == "european-portuguese" || s == "europeanportuguese";
 }
 
 bool dialect_resolves_to_brazilian_portuguese_rules(std::string_view dialect_id) {
-  const std::string s = norm_pt_dialect_key(dialect_id);
-  return s == "pt-br" || s == "pt_br" || s == "brazil" || s == "brazilian-portuguese" || s == "brazilianportuguese" ||
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
+  }
+  return s == "pt-br" || s == "brazil" || s == "brazilian-portuguese" || s == "brazilianportuguese" ||
          s == "portuguese-brazil";
 }
 
 std::vector<std::string> PortugueseRuleG2p::dialect_ids() {
-  return {"pt-PT", "pt_PT", "portugal", "european-portuguese", "europeanportuguese",
-          "pt-BR", "pt_BR", "brazil", "brazilian-portuguese", "brazilianportuguese",
-          "portuguese-brazil"};
+  return dedupe_dialect_ids_preserve_first(
+      {"pt-PT", "pt_PT", "portugal", "european-portuguese", "europeanportuguese", "pt-BR", "pt_BR",
+       "brazil", "brazilian-portuguese", "brazilianportuguese", "portuguese-brazil"});
 }
 
 std::filesystem::path resolve_portuguese_dict_path(const std::filesystem::path& model_root, bool is_portugal) {

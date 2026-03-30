@@ -508,19 +508,16 @@ std::string ChineseRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog
 }
 
 bool dialect_resolves_to_chinese_rules(std::string_view dialect_id) {
-  std::string s = trim_ascii_ws_copy(dialect_id);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (s.empty()) {
+    return false;
   }
-  return s == "zh" || s == "zh-hans" || s == "zh_cn" || s == "zh-cn" || s == "cmn" || s == "chinese" ||
-         s == "zh_hans";
+  return s == "zh" || s == "zh-hans" || s == "zh-cn" || s == "cmn" || s == "chinese";
 }
 
 std::vector<std::string> ChineseRuleG2p::dialect_ids() {
-  return {"zh", "zh-Hans", "zh_CN", "zh-CN", "zh_hans", "cmn", "Chinese"};
+  return dedupe_dialect_ids_preserve_first(
+      {"zh", "zh-Hans", "zh_CN", "zh-CN", "zh_hans", "cmn", "Chinese"});
 }
 
 std::filesystem::path resolve_chinese_dict_path(const std::filesystem::path& model_root) {

@@ -65,6 +65,14 @@ std::optional<char32_t> utf8_codepoint_at_index(const std::string& s, size_t byt
 /// True if the ASCII digit substring ``text[start_byte:end_byte]`` should expand like Python ``\\b\\d+\\b``.
 bool digit_ascii_span_expandable_python_w(const std::string& text, size_t start_byte, size_t end_byte);
 
+/// Trim ASCII whitespace, map ``_`` → ``-``, and ASCII-lowercase ``A``–``Z``. Used for MoonshineG2P /
+/// ``create_rule_based_g2p`` dialect matching (tags are ASCII).
+std::string normalize_rule_based_dialect_cli_key(std::string_view raw);
+
+/// Keep the first surface form for each ``normalize_rule_based_dialect_cli_key`` value (drops e.g.
+/// both ``pt-PT`` and ``pt_PT`` when they normalize to the same key).
+std::vector<std::string> dedupe_dialect_ids_preserve_first(std::vector<std::string> ids);
+
 }  // namespace moonshine_g2p
 
 #endif  // MOONSHINE_G2P_UTF8_UTILS_H

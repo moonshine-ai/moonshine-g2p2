@@ -141,7 +141,8 @@ EnglishRuleG2p::EnglishRuleG2p(EnglishRuleG2p&&) noexcept = default;
 EnglishRuleG2p& EnglishRuleG2p::operator=(EnglishRuleG2p&&) noexcept = default;
 
 std::vector<std::string> EnglishRuleG2p::dialect_ids() {
-  return {"en_us", "en-US", "en-us", "english", "en"};
+  return dedupe_dialect_ids_preserve_first(
+      {"en_us", "en-US", "en-us", "english", "en"});
 }
 
 std::string EnglishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog>* per_word_log) {
@@ -233,21 +234,11 @@ std::string EnglishRuleG2p::text_to_ipa(std::string text, std::vector<G2pWordLog
 }
 
 bool dialect_resolves_to_english_rules(std::string_view dialect_id) {
-  const std::string s = trim_copy_sv(dialect_id);
+  const std::string s = normalize_rule_based_dialect_cli_key(dialect_id);
   if (s.empty()) {
     return false;
   }
-  std::string lower;
-  lower.reserve(s.size());
-  for (unsigned char c : s) {
-    lower.push_back(static_cast<char>(std::tolower(c)));
-  }
-  for (char& c : lower) {
-    if (c == '-') {
-      c = '_';
-    }
-  }
-  return lower == "en_us" || lower == "english" || lower == "en";
+  return s == "en-us" || s == "english" || s == "en";
 }
 
 std::filesystem::path resolve_english_dict_path(const std::filesystem::path& model_root) {

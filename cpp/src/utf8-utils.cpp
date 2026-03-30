@@ -1,5 +1,7 @@
 #include "moonshine-g2p/utf8-utils.h"
 
+#include <unordered_set>
+
 namespace moonshine_g2p {
 
 bool utf8_decode_at(const std::string& s, size_t i, char32_t& out_cp, size_t& out_len) {
@@ -251,6 +253,34 @@ bool digit_ascii_span_expandable_python_w(const std::string& text, size_t start_
     return false;
   }
   return true;
+}
+
+std::string normalize_rule_based_dialect_cli_key(std::string_view raw) {
+  std::string s = trim_ascii_ws_copy(raw);
+  for (char& c : s) {
+    if (c == '_') {
+      c = '-';
+    } else if (c >= 'A' && c <= 'Z') {
+      c = static_cast<char>(c - 'A' + 'a');
+    }
+  }
+  return s;
+}
+
+std::vector<std::string> dedupe_dialect_ids_preserve_first(std::vector<std::string> ids) {
+  std::unordered_set<std::string> seen;
+  std::vector<std::string> out;
+  out.reserve(ids.size());
+  for (std::string& id : ids) {
+    const std::string n = normalize_rule_based_dialect_cli_key(id);
+    if (n.empty()) {
+      continue;
+    }
+    if (seen.insert(n).second) {
+      out.push_back(std::move(id));
+    }
+  }
+  return out;
 }
 
 }  // namespace moonshine_g2p

@@ -9,11 +9,13 @@
 #include "moonshine-g2p/chinese-onnx-g2p.h"
 #include "moonshine-g2p/lang-specific/chinese.h"
 #include "moonshine-g2p/lang-specific/korean.h"
+#include "moonshine-g2p/lang-specific/vietnamese.h"
 #include "moonshine-g2p/lang-specific/japanese.h"
 #include "moonshine-g2p/lang-specific/italian.h"
 #include "moonshine-g2p/lang-specific/portuguese.h"
 #include "moonshine-g2p/lang-specific/russian.h"
 #include "moonshine-g2p/lang-specific/spanish.h"
+#include "moonshine-g2p/utf8-utils.h"
 
 #include <cctype>
 #include <filesystem>
@@ -60,16 +62,8 @@ std::filesystem::path resolve_french_csv_dir(const MoonshineG2POptions& opt) {
 }
 
 std::string normalize_spanish_dialect_cli_key(std::string_view raw) {
-  std::string s = trim_copy(raw);
-  for (char& c : s) {
-    if (c == '_') {
-      c = '-';
-    }
-  }
-  if (s.size() >= 3 && (s[0] == 'e' || s[0] == 'E') && (s[1] == 's' || s[1] == 'S') &&
-      s[2] == '-') {
-    s[0] = 'e';
-    s[1] = 's';
+  std::string s = normalize_rule_based_dialect_cli_key(raw);
+  if (s.size() >= 3 && s[0] == 'e' && s[1] == 's' && s[2] == '-') {
     size_t i = 3;
     while (i < s.size() && s[i] != '-') {
       if (std::isalpha(static_cast<unsigned char>(s[i])) != 0) {
@@ -317,6 +311,25 @@ std::optional<RuleBasedG2pInstance> try_korean(std::string_view trimmed,
   return out;
 }
 
+std::optional<RuleBasedG2pInstance> try_vietnamese(std::string_view trimmed,
+                                                 const MoonshineG2POptions& options) {
+  if (!dialect_resolves_to_vietnamese_rules(trimmed)) {
+    return std::nullopt;
+  }
+  const std::filesystem::path vdict =
+      options.vietnamese_dict_path.value_or(resolve_vietnamese_dict_path(options.model_root));
+  if (!std::filesystem::is_regular_file(vdict)) {
+    throw std::runtime_error(
+        "Vietnamese G2P: lexicon not found at " + vdict.generic_string() +
+        " (set MoonshineG2POptions::vietnamese_dict_path)");
+  }
+  RuleBasedG2pInstance out;
+  out.canonical_dialect_id = "vi-VN";
+  out.kind = RuleBasedG2pKind::Vietnamese;
+  out.engine = std::make_unique<VietnameseRuleG2p>(vdict);
+  return out;
+}
+
 std::optional<RuleBasedG2pInstance> try_japanese(std::string_view trimmed,
                                                  const MoonshineG2POptions& options) {
   if (!dialect_resolves_to_japanese_rules(trimmed)) {
@@ -386,6 +399,7 @@ const TryFn kTryChain[] = {
     try_russian,
     try_chinese,
     try_korean,
+    try_vietnamese,
     try_japanese,
     try_portuguese,
 };
@@ -394,12 +408,12 @@ const TryFn kTryChain[] = {
 
 std::optional<RuleBasedG2pInstance> create_rule_based_g2p(std::string_view dialect_id,
                                                         const MoonshineG2POptions& options) {
-  const std::string trimmed = trim_copy(dialect_id);
-  if (trimmed.empty()) {
+  const std::string norm = normalize_rule_based_dialect_cli_key(dialect_id);
+  if (norm.empty()) {
     throw std::invalid_argument("empty dialect id");
   }
   for (TryFn fn : kTryChain) {
-    if (auto o = fn(trimmed, options)) {
+    if (auto o = fn(norm, options)) {
       return o;
     }
   }
@@ -417,6 +431,7 @@ std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> rule_based_g2
   out.emplace_back(RuleBasedG2pKind::Russian, RussianRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Chinese, ChineseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Korean, KoreanRuleG2p::dialect_ids());
+  out.emplace_back(RuleBasedG2pKind::Vietnamese, VietnameseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Japanese, JapaneseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Portuguese, PortugueseRuleG2p::dialect_ids());
   return out;
