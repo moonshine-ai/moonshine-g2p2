@@ -42,11 +42,11 @@
 4. **Export ONNX** (from repo root, with PyTorch + `onnx` installed):
 
    ```bash
-   python scripts/export_models_to_onnx.py --language en_us --only both \
+   python scripts/export_models_to_onnx.py --model-root models --language en_us --only both \
      --heteronym-checkpoint models/en_us/heteronym/checkpoint.pt \
      --oov-checkpoint models/en_us/oov/checkpoint.pt
    ```
 
-   Ensure `models/en_us/g2p-config.json` matches desired flags.
+   Keep `models/en_us/g2p-config.json` present so `--only` defaults match your intent (if it is missing, the exporter falls back to CLI-only flags). Re-exporting from the same checkpoints reproduces `model.onnx` and `onnx-config.json` byte-for-byte with the fixed exporter (see `cpp/data/README.md` → *Regeneration verification*).
 
 5. Copy `dict_filtered_heteronyms.tsv`, `g2p-config.json`, and the `heteronym/` and `oov/` directories into `cpp/data/en_us/` if you maintain this layout.

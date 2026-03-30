@@ -34,3 +34,5 @@ python scripts/download_multilingual_ipa_lexicons.py --only ja
 3. C++ runtime expects at least: `model.onnx`, `vocab.txt`, `tokenizer_config.json`, `meta.json`. If ONNX Runtime loads external data, keep **`model.onnx.data`** next to `model.onnx`.
 
 Copy the `dict.tsv` and the whole ONNX directory into `cpp/data/ja/` as needed.
+
+**Byte stability:** Like Chinese, `model.onnx` is not guaranteed to be byte-identical across exporter versions. The checked-in Japanese bundle may use **external** data (`model.onnx` + `model.onnx.data`); a new export might emit a single larger `model.onnx` instead—both layouts can work with ONNX Runtime if paths stay consistent.

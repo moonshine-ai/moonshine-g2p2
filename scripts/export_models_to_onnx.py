@@ -531,7 +531,7 @@ def main(argv: list[str] | None = None) -> None:
 
         onnx_config_path = onnx_path.parent / args_ns.onnx_config_name
         merged = _build_config_onnx(
-            kind, checkpoint_dir, meta, onnx_config_path, args_ns.opset
+            kind, checkpoint_dir, meta, onnx_path, args_ns.opset
         )
         onnx_config_path.write_text(
             json.dumps(merged, indent=2, ensure_ascii=False) + "\n",

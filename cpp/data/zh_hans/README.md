@@ -34,3 +34,5 @@ python scripts/download_multilingual_ipa_lexicons.py --only zh_hans
 3. C++ expects at least: `model.onnx`, `vocab.txt`, `tokenizer_config.json`, `meta.json` (additional tokenizer files from export are optional for the C++ loader).
 
 Copy `dict.tsv` and the ONNX directory into `cpp/data/zh_hans/` as needed.
+
+**Byte stability:** A fresh export may not match the committed `model.onnx` byte-for-byte (PyTorch ONNX backend, int8 shrinking, opset). `meta.json` and `vocab.txt` have been observed to match; `tokenizer_config.json` may pick up small JSON differences across `transformers` versions.
