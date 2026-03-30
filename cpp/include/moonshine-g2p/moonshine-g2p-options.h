@@ -42,6 +42,8 @@ struct MoonshineG2POptions {
   bool russian_vocoder_stress = true;
   /// Simplified Chinese rule G2P (``zh``, ``zh-Hans``, ``cmn``, …): ``<model-root>/../data/zh_hans/dict.tsv`` or ``<model-root>/zh_hans/dict.tsv``.
   std::optional<std::filesystem::path> chinese_dict_path;
+  /// RoBERTa Chinese UPOS ONNX (``model.onnx``, ``vocab.txt``, …); default ``<model-root>/../data/zh_hans/roberta_chinese_base_upos_onnx``.
+  std::optional<std::filesystem::path> chinese_onnx_model_dir;
   /// Korean rule G2P (``ko``, ``ko-KR``, …): ``<model-root>/../data/ko/dict.tsv`` or ``<model-root>/ko/dict.tsv``.
   std::optional<std::filesystem::path> korean_dict_path;
   bool korean_expand_cardinal_digits = true;

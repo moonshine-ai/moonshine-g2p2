@@ -26,7 +26,8 @@ void usage(const char *argv0) {
       << "       [--no-stress] [--broad-phonemes] [--stdin]\n"
       << "       [--german-dict PATH] [--german-syllable-initial-stress]\n"
       << "       [--russian-dict PATH] [--russian-syllable-initial-stress]\n"
-      << "       [--chinese-dict PATH] [--korean-dict PATH] [--no-korean-expand-digits]\n"
+      << "       [--chinese-dict PATH] [--chinese-onnx-dir PATH] [--korean-dict PATH] "
+         "[--no-korean-expand-digits]\n"
       << "       [--japanese-dict PATH] [--japanese-onnx-dir DIR]\n"
       << "       [--dutch-dict PATH] [--dutch-syllable-initial-stress] [--no-dutch-expand-digits]\n"
       << "       [--portuguese-dict PATH] [--portuguese-syllable-initial-stress] [--no-portuguese-expand-digits]\n"
@@ -46,8 +47,10 @@ void usage(const char *argv0) {
          "or <model-root>/nl/dict.tsv; override with --dutch-dict.\n"
       << "  Russian (ru, ru-RU, russian): rule-based G2P; default <model-root>/../data/ru/dict.tsv "
          "or <model-root>/ru/dict.tsv; override with --russian-dict.\n"
-      << "  Chinese (zh, zh-Hans, cmn, …): rule-based G2P; default <model-root>/../data/zh_hans/dict.tsv "
-         "or <model-root>/zh_hans/dict.tsv; override with --chinese-dict.\n"
+      << "  Chinese (zh, zh-Hans, cmn, …): RoBERTa UPOS ONNX + lexicon; default "
+         "<model-root>/../data/zh_hans/dict.tsv and "
+         "<model-root>/../data/zh_hans/roberta_chinese_base_upos_onnx/; override with "
+         "--chinese-dict / --chinese-onnx-dir.\n"
       << "  Korean (ko, ko-KR, korean): rule-based G2P; default <model-root>/../data/ko/dict.tsv "
          "or <model-root>/ko/dict.tsv; override with --korean-dict.\n"
       << "  Japanese (ja, ja-JP, japanese): ONNX LUW + lexicon; default <model-root>/../data/ja/dict.tsv "
@@ -106,6 +109,8 @@ int main(int argc, char **argv) {
       opt.german_dict_path = argv[++i];
     } else if (a == "--chinese-dict" && i + 1 < argc) {
       opt.chinese_dict_path = argv[++i];
+    } else if (a == "--chinese-onnx-dir" && i + 1 < argc) {
+      opt.chinese_onnx_model_dir = argv[++i];
     } else if (a == "--korean-dict" && i + 1 < argc) {
       opt.korean_dict_path = argv[++i];
     } else if (a == "--japanese-dict" && i + 1 < argc) {

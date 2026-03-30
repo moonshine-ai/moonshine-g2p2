@@ -6,6 +6,7 @@
 #include "moonshine-g2p/lang-specific/english.h"
 #include "moonshine-g2p/lang-specific/french.h"
 #include "moonshine-g2p/lang-specific/german.h"
+#include "moonshine-g2p/chinese-onnx-g2p.h"
 #include "moonshine-g2p/lang-specific/chinese.h"
 #include "moonshine-g2p/lang-specific/korean.h"
 #include "moonshine-g2p/lang-specific/japanese.h"
@@ -272,6 +273,15 @@ std::optional<RuleBasedG2pInstance> try_chinese(std::string_view trimmed,
   if (!dialect_resolves_to_chinese_rules(trimmed)) {
     return std::nullopt;
   }
+  const std::filesystem::path mdir =
+      options.chinese_onnx_model_dir.value_or(resolve_chinese_onnx_model_dir(options.model_root));
+  const auto onnx = mdir / "model.onnx";
+  if (!std::filesystem::is_regular_file(onnx)) {
+    throw std::runtime_error(
+        "Chinese G2P: ONNX bundle not found at " + onnx.generic_string() +
+        " (set MoonshineG2POptions::chinese_onnx_model_dir or export "
+        "KoichiYasuoka/chinese-roberta-base-upos to data/zh_hans/roberta_chinese_base_upos_onnx/)");
+  }
   const std::filesystem::path cdict =
       options.chinese_dict_path.value_or(resolve_chinese_dict_path(options.model_root));
   if (!std::filesystem::is_regular_file(cdict)) {
@@ -282,7 +292,7 @@ std::optional<RuleBasedG2pInstance> try_chinese(std::string_view trimmed,
   RuleBasedG2pInstance out;
   out.canonical_dialect_id = "zh-Hans";
   out.kind = RuleBasedG2pKind::Chinese;
-  out.engine = std::make_unique<ChineseRuleG2p>(cdict);
+  out.engine = std::make_unique<ChineseOnnxRuleG2p>(mdir, cdict, options.use_cuda);
   return out;
 }
 

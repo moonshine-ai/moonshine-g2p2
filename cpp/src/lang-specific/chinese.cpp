@@ -7,6 +7,7 @@
 #include <cctype>
 #include <cstdint>
 #include <fstream>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -62,18 +63,21 @@ bool pos_in_set(std::string_view p, const std::unordered_set<std::string>& s) {
 }
 
 const std::unordered_set<std::string>& skip_phonetic_pos() {
-  static const std::unordered_set<std::string> k{"PU", "SP", "URL", "EM", "NOI"};
+  static const std::unordered_set<std::string> k{"PU", "SP", "URL", "EM", "NOI", "PUNCT", "SYM", "X"};
   return k;
 }
 
 const std::unordered_set<std::string>& verb_like_pos() {
-  static const std::unordered_set<std::string> k{"VV", "VA", "VE", "VC", "LB", "BA", "SB",
-                                                 "MSP", "AS", "DER", "DEV", "DEC"};
+  static const std::unordered_set<std::string> k{
+      "VV",  "VA",  "VE",  "VC",  "LB",  "BA",  "SB",  "MSP", "AS",  "DER", "DEV", "DEC",
+      "VERB", "AUX", "ADV"};
   return k;
 }
 
 const std::unordered_set<std::string>& noun_like_pos() {
-  static const std::unordered_set<std::string> k{"NN", "NR", "NT", "LC", "OD", "M", "CD", "DT", "PN"};
+  static const std::unordered_set<std::string> k{"NN",  "NR",  "NT",  "LC",  "OD",  "M",   "CD",
+                                                 "DT",  "PN",  "NOUN", "PROPN", "ADJ", "DET",
+                                                 "PRON", "NUM"};
   return k;
 }
 
@@ -237,12 +241,12 @@ std::string ChineseRuleG2p::disambiguate_heteronym(std::string_view word,
   if (w == "\xe4\xba\x86") {  // 了
     for (const std::string& r : readings) {
       if (ipa_contains(r, "l\xc9\xa4") && !ipa_contains(r, "lj\xc9\x91\xca\x8a")) {  // lɤ, ljɑʊ
-        if (p == "AS" || p == "SP" || p == "ETC") {
+        if (p == "AS" || p == "SP" || p == "ETC" || p == "PART") {
           return r;
         }
       }
     }
-    if (p == "VV") {
+    if (p == "VV" || p == "VERB") {
       for (const std::string& r : readings) {
         if (ipa_contains(r, "lj\xc9\x91\xca\x8a")) {
           return r;
@@ -273,7 +277,7 @@ std::string ChineseRuleG2p::disambiguate_heteronym(std::string_view word,
   }
   if (w == "\xe7\x9d\x80") {  // 着
     for (const std::string& r : readings) {
-      if (ipa_contains(r, "\xca\x88\xca\x82\xc9\x91\xca\x8a")) {  // ʈʂɑʊ
+        if (ipa_contains(r, "\xca\x88\xca\x82\xc9\x91\xca\x8a")) {  // ʈʂɑʊ
         if (pos_in_set(p, verb_like_pos())) {
           return r;
         }
@@ -281,7 +285,7 @@ std::string ChineseRuleG2p::disambiguate_heteronym(std::string_view word,
     }
     for (const std::string& r : readings) {
       if (ipa_contains(r, "\xca\x88\xca\x82\xc9\xa4") || ipa_contains(r, "\xca\x88\xca\x82u\xc9\x94")) {
-        if (p == "AS" || p == "MSP" || p == "ETC") {
+        if (p == "AS" || p == "MSP" || p == "ETC" || p == "PART") {
           return r;
         }
       }
@@ -291,7 +295,7 @@ std::string ChineseRuleG2p::disambiguate_heteronym(std::string_view word,
   if (w == "\xe5\x9c\xb0") {  // 地
     for (const std::string& r : readings) {
       if (ipa_contains(r, "t\xc9\xa4")) {
-        if (p == "DEV") {
+        if (p == "DEV" || p == "ADV") {
           return r;
         }
       }
@@ -308,7 +312,7 @@ std::string ChineseRuleG2p::disambiguate_heteronym(std::string_view word,
   if (w == "\xe5\xbe\x97") {  // 得
     for (const std::string& r : readings) {
       if (ipa_contains(r, "t\xc9\xa4") || ipa_contains(r, "t\xc9\x99")) {
-        if (p == "DER" || p == "DEV" || p == "AS") {
+        if (p == "DER" || p == "DEV" || p == "AS" || p == "PART") {
           return r;
         }
       }
@@ -525,6 +529,24 @@ std::filesystem::path resolve_chinese_dict_path(const std::filesystem::path& mod
     return under_data;
   }
   return model_root / "zh_hans" / "dict.tsv";
+}
+
+std::filesystem::path resolve_chinese_onnx_model_dir(const std::filesystem::path& model_root) {
+  const auto try_dir = [](const std::filesystem::path& dir) -> std::optional<std::filesystem::path> {
+    const auto onnx = dir / "model.onnx";
+    if (std::filesystem::is_regular_file(onnx)) {
+      return dir;
+    }
+    return std::nullopt;
+  };
+  if (auto o = try_dir(model_root.parent_path() / "data" / "zh_hans" / "roberta_chinese_base_upos_onnx")) {
+    return *o;
+  }
+  if (auto o = try_dir(model_root.parent_path().parent_path() / "data" / "zh_hans" /
+                       "roberta_chinese_base_upos_onnx")) {
+    return *o;
+  }
+  return model_root / "zh_hans" / "roberta_chinese_base_upos_onnx";
 }
 
 }  // namespace moonshine_g2p

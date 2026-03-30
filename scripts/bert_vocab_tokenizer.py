@@ -426,7 +426,7 @@ if __name__ == "__main__":
     import sys
 
     root = Path(__file__).resolve().parent.parent
-    td = root / "models" / "zh_hans" / "hanlp_ctb9_electra_small" / "tokenizer"
+    td = root / "data" / "zh_hans" / "roberta_chinese_base_upos_onnx"
     tests = [
         "你好世界",
         "Hello 中国",

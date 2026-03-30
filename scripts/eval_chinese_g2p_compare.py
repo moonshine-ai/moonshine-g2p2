@@ -218,7 +218,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument(
         "--model-dir",
         type=Path,
-        default=_REPO_ROOT / "models" / "zh_hans" / "hanlp_ctb9_electra_small",
+        default=_REPO_ROOT / "data" / "zh_hans" / "roberta_chinese_base_upos_onnx",
     )
     args = p.parse_args(argv)
 
@@ -272,7 +272,8 @@ def main(argv: list[str] | None = None) -> None:
             # Han-only utterance so syllable counts align with per-char pypinyin.
             ipa_line = g2p.sentence_to_ipa(han)
         except ValueError as e:
-            if "span width" in str(e) or "span_inner_pad" in str(e):
+            err = str(e)
+            if "sequence length" in err or "span width" in err or "span_inner_pad" in err:
                 skipped_onnx += 1
                 continue
             raise
@@ -294,7 +295,7 @@ def main(argv: list[str] | None = None) -> None:
     n_used = n - skipped_dragonmapper - skipped_onnx
     print(f"Lines sampled: {n}; used for IPA compare: {n_used} (seed={args.seed}, wiki={args.wiki.name})")
     if skipped_onnx:
-        print(f"Skipped {skipped_onnx} line(s): ONNX POS span limit (very long rare words).")
+        print(f"Skipped {skipped_onnx} line(s): ONNX sequence / span limit (very long input).")
     if skipped_dragonmapper:
         print(
             f"Skipped {skipped_dragonmapper} line(s): dragonmapper cannot convert some pypinyin syllables (e.g. nü)."

@@ -1,5 +1,5 @@
-// Stand-alone Simplified Chinese rule + lexicon G2P (no ONNX). Mirrors ``chinese_rule_g2p.py`` CLI subset.
-#include "moonshine-g2p/lang-specific/chinese.h"
+// Simplified Chinese ONNX segmentation + UPOS + lexicon G2P (mirrors ``chinese_rule_g2p.py`` CLI).
+#include "moonshine-g2p/chinese-onnx-g2p.h"
 
 #include <filesystem>
 #include <iostream>
@@ -10,8 +10,9 @@
 namespace {
 
 void usage(const char* argv0) {
-  std::cerr << "Usage: " << argv0 << " [--dict PATH] [--stdin] [TEXT...]\n"
-            << "  Default dict: data/zh_hans/dict.tsv (relative to current directory).\n";
+  std::cerr << "Usage: " << argv0 << " [--model-dir PATH] [--dict PATH] [--stdin] [TEXT...]\n"
+            << "  Default model: data/zh_hans/roberta_chinese_base_upos_onnx\n"
+            << "  Default dict: data/zh_hans/dict.tsv\n";
 }
 
 std::string read_all_stdin() {
@@ -23,6 +24,8 @@ std::string read_all_stdin() {
 }  // namespace
 
 int main(int argc, char** argv) {
+  std::filesystem::path model_dir =
+      std::filesystem::path("data") / "zh_hans" / "roberta_chinese_base_upos_onnx";
   std::filesystem::path dict_path = std::filesystem::path("data") / "zh_hans" / "dict.tsv";
   bool force_stdin = false;
   std::vector<std::string> parts;
@@ -33,7 +36,9 @@ int main(int argc, char** argv) {
       usage(argv[0]);
       return 0;
     }
-    if (a == "--dict" && i + 1 < argc) {
+    if (a == "--model-dir" && i + 1 < argc) {
+      model_dir = argv[++i];
+    } else if (a == "--dict" && i + 1 < argc) {
       dict_path = argv[++i];
     } else if (a == "--stdin") {
       force_stdin = true;
@@ -55,7 +60,7 @@ int main(int argc, char** argv) {
   }
 
   try {
-    moonshine_g2p::ChineseRuleG2p g2p(dict_path);
+    moonshine_g2p::ChineseOnnxG2p g2p(std::move(model_dir), std::move(dict_path), false);
     std::cout << g2p.text_to_ipa(text) << '\n';
   } catch (const std::exception& e) {
     std::cerr << "error: " << e.what() << '\n';

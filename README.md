@@ -28,11 +28,11 @@ CMU
 
 https://github.com/hbenbel/French-Dictionary
 
-https://github.com/hankcs/HanLP
-
 https://github.com/LuminosoInsight/mecab-ko-dic
 
 https://github.com/KoichiYasuoka/esupar
+
+https://huggingface.co/KoichiYasuoka/chinese-roberta-base-upos
 
 https://huggingface.co/KoichiYasuoka/roberta-base-korean-morph-upos
 

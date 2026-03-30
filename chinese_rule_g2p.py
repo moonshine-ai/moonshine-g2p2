@@ -2,9 +2,9 @@
 """
 Rule- and lexicon-based **Simplified Chinese** grapheme-to-phoneme (Mandarin IPA).
 
-* **Preprocessing** uses the exported CTB9 ONNX pipeline (same as
-  ``scripts/chinese_hanlp_ws_pos_onnx.py``): word segmentation + Penn Chinese
-  Treebank–style POS tags. No HanLP or PyTorch at inference.
+* **Preprocessing** uses ``KoichiYasuoka/chinese-roberta-base-upos`` exported to ONNX
+  (same as ``chinese_tok_pos_onnx.ChineseTokPosOnnx``): WordPiece + BIO tagging →
+  words + Universal POS (UD UPOS). No PyTorch at inference.
 * **In-vocabulary** multi-character words use ``data/zh_hans/dict.tsv``
   (``word<TAB>ipa`` from `ipa-dict` / open-dict-data). When a surface form has
   several IPAs, **POS-guided heuristics** pick among common readings (e.g. 行
@@ -22,7 +22,7 @@ Requires: ``onnxruntime``, ``numpy``, ``tokenizers`` (default tokenizer backend)
 
 Example::
 
-    python chinese_rule_g2p.py --model-dir models/zh_hans/hanlp_ctb9_electra_small \\
+    python chinese_rule_g2p.py --model-dir data/zh_hans/roberta_chinese_base_upos_onnx \\
         "上海是一座城市。"
 
 Compare to **pypinyin + dragonmapper** and **espeak-ng** syllable counts::
@@ -42,11 +42,11 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent
 _DEFAULT_DICT_PATH = _REPO_ROOT / "data" / "zh_hans" / "dict.tsv"
-_DEFAULT_MODEL_DIR = _REPO_ROOT / "models" / "zh_hans" / "hanlp_ctb9_electra_small"
-_SCRIPTS_DIR = _REPO_ROOT / "scripts"
+_DEFAULT_MODEL_DIR = _REPO_ROOT / "data" / "zh_hans" / "roberta_chinese_base_upos_onnx"
 
 # POS tags where the token is usually punctuation / filler with no dictionary IPA.
-_SKIP_PHONETIC_POS = frozenset({"PU", "SP", "URL", "EM", "NOI"})
+# Includes CTB-style tags (legacy) and UD UPOS from ``chinese-roberta-base-upos``.
+_SKIP_PHONETIC_POS = frozenset({"PU", "SP", "URL", "EM", "NOI", "PUNCT", "SYM", "X"})
 
 _CN_DIGITS = "零一二三四五六七八九"
 _MAX_CARDINAL_MAGNITUDE = 10**16  # beyond this → digit-by-digit readout
@@ -202,17 +202,46 @@ def arabic_numeral_token_to_ipa(s: str, lex: Mapping[str, list[str]]) -> str | N
         return None
     return han_reading_to_ipa(han, lex)
 
-# Verb-like tags (xíng “walk/OK”, méi “not have”, …).
+# Verb-like tags (xíng “walk/OK”, méi “not have”, …). CTB + UD UPOS.
 _VERB_LIKE_POS = frozenset(
-    {"VV", "VA", "VE", "VC", "LB", "BA", "SB", "MSP", "AS", "DER", "DEV", "DEC"}
+    {
+        "VV",
+        "VA",
+        "VE",
+        "VC",
+        "LB",
+        "BA",
+        "SB",
+        "MSP",
+        "AS",
+        "DER",
+        "DEV",
+        "DEC",
+        "VERB",
+        "AUX",
+        "ADV",
+    }
 )
-# Noun-like tags (háng “row/industry”, …).
-_NOUN_LIKE_POS = frozenset({"NN", "NR", "NT", "LC", "OD", "M", "CD", "DT", "PN"})
-
-
-def _ensure_scripts_path() -> None:
-    if str(_SCRIPTS_DIR) not in sys.path:
-        sys.path.insert(0, str(_SCRIPTS_DIR))
+# Noun-like tags (háng “row/industry”, …). CTB + UD UPOS.
+_NOUN_LIKE_POS = frozenset(
+    {
+        "NN",
+        "NR",
+        "NT",
+        "LC",
+        "OD",
+        "M",
+        "CD",
+        "DT",
+        "PN",
+        "NOUN",
+        "PROPN",
+        "ADJ",
+        "DET",
+        "PRON",
+        "NUM",
+    }
+)
 
 
 def normalize_zh_key(word: str) -> str:
@@ -280,7 +309,7 @@ def _reading_contains_any(ipa: str, needles: tuple[str, ...]) -> bool:
 
 def disambiguate_heteronym(word: str, pos: str | None, readings: Sequence[str]) -> str:
     """
-    Pick one IPA for *word* given CTB-style *pos* and parallel *readings* from TSV order.
+    Pick one IPA for *word* given CTB-style or UD UPOS *pos* and parallel *readings* from TSV order.
 
     Heuristics are intentionally small; unknown cases use ``readings[0]``.
     """
@@ -303,9 +332,9 @@ def disambiguate_heteronym(word: str, pos: str | None, readings: Sequence[str]) 
     if w == "了":
         le = [r for r in readings if "lɤ" in r and "ljɑʊ" not in r]
         liao = [r for r in readings if "ljɑʊ" in r]
-        if pos in ("AS", "SP", "ETC") and le:
+        if pos in ("AS", "SP", "ETC", "PART") and le:
             return le[0]
-        if pos == "VV" and liao:
+        if pos in ("VV", "VERB") and liao:
             return liao[0]
         return readings[0]
 
@@ -321,7 +350,7 @@ def disambiguate_heteronym(word: str, pos: str | None, readings: Sequence[str]) 
     if w == "着":
         zhao = [r for r in readings if "ʈʂɑʊ" in r]
         zhe_zhuo = [r for r in readings if "ʈʂɤ" in r or "ʈʂuɔ" in r]
-        if pos in ("AS", "MSP", "ETC") and zhe_zhuo:
+        if pos in ("AS", "MSP", "ETC", "PART") and zhe_zhuo:
             return zhe_zhuo[0]
         if pos in _VERB_LIKE_POS and zhao:
             return zhao[0]
@@ -330,7 +359,7 @@ def disambiguate_heteronym(word: str, pos: str | None, readings: Sequence[str]) 
     if w == "地":
         de_particle = [r for r in readings if "tɤ" in r]
         di_noun = [r for r in readings if "ti˥˩" in r]
-        if pos == "DEV" and de_particle:
+        if pos in ("DEV", "ADV") and de_particle:
             return de_particle[0]
         if pos in _NOUN_LIKE_POS and di_noun:
             return di_noun[0]
@@ -339,7 +368,7 @@ def disambiguate_heteronym(word: str, pos: str | None, readings: Sequence[str]) 
     if w == "得":
         de_particle = [r for r in readings if "tɤ" in r or "tə" in r]
         dei = [r for r in readings if "teɪ" in r or "tɛɪ" in r]
-        if pos in ("DER", "DEV", "AS") and de_particle:
+        if pos in ("DER", "DEV", "AS", "PART") and de_particle:
             return de_particle[0]
         if pos in _VERB_LIKE_POS and dei:
             return dei[0]
@@ -384,7 +413,7 @@ def char_fallback_ipa(word: str, lex: Mapping[str, list[str]]) -> str | None:
 
 class ChineseOnnxLexiconG2p:
     """
-    Segment + POS with ONNX, then IPA via ``data/zh_hans/dict.tsv`` (+ char fallback).
+    Segment + POS with ONNX (UD UPOS), then IPA via ``data/zh_hans/dict.tsv`` (+ char fallback).
     """
 
     def __init__(
@@ -393,16 +422,14 @@ class ChineseOnnxLexiconG2p:
         dict_path: Path | str | None = None,
         model_dir: Path | str | None = None,
         lexicon: Mapping[str, list[str]] | None = None,
-        tokenizer_backend: str = "json",
         onnx_providers: list[str] | None = None,
     ) -> None:
-        _ensure_scripts_path()
-        from chinese_hanlp_ws_pos_onnx import HanlpCtb9OnnxWsPos
+        from chinese_tok_pos_onnx import ChineseTokPosOnnx
 
         self._dict_path = Path(dict_path) if dict_path else _DEFAULT_DICT_PATH
         self._lex: Mapping[str, list[str]] = lexicon if lexicon is not None else _get_lexicon(self._dict_path)
         md = Path(model_dir) if model_dir else _DEFAULT_MODEL_DIR
-        self._ws_pos = HanlpCtb9OnnxWsPos(md, providers=onnx_providers, tokenizer_backend=tokenizer_backend)
+        self._ws_pos = ChineseTokPosOnnx(md, providers=onnx_providers)
 
     def reload_lexicon(self) -> None:
         global _LEXICON_CACHE, _LEXICON_PATH
@@ -438,10 +465,9 @@ class ChineseOnnxLexiconG2p:
 
     def sentence_to_ipa(self, sentence: str, *, joiner: str = " ") -> str:
         """Full sentence: ONNX segment + POS, then lexicon G2P; non-empty syllables joined."""
-        ann = self._ws_pos.segment_and_tag(sentence)
         parts: list[str] = []
-        for t in ann.tokens:
-            ipa = self.g2p_word(t.word, t.pos)
+        for word, pos in self._ws_pos.annotate(sentence):
+            ipa = self.g2p_word(word, pos)
             if ipa:
                 parts.append(ipa)
         return joiner.join(parts)
@@ -450,8 +476,9 @@ class ChineseOnnxLexiconG2p:
         self, sentence: str
     ) -> list[tuple[str, str, str]]:
         """``(word, pos, ipa)`` per token; *ipa* may be empty for punctuation."""
-        ann = self._ws_pos.segment_and_tag(sentence)
-        return [(t.word, t.pos, self.g2p_word(t.word, t.pos)) for t in ann.tokens]
+        return [
+            (w, p, self.g2p_word(w, p)) for w, p in self._ws_pos.annotate(sentence)
+        ]
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -459,12 +486,6 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("text", nargs="*", help="Sentence(s); if empty, read stdin lines")
     p.add_argument("--dict-path", type=Path, default=_DEFAULT_DICT_PATH)
     p.add_argument("--model-dir", type=Path, default=_DEFAULT_MODEL_DIR)
-    p.add_argument(
-        "--tokenizer",
-        choices=("json", "vocab_txt"),
-        default="json",
-        help="Tokenizer backend for the ONNX preprocessor.",
-    )
     p.add_argument(
         "--tokens",
         action="store_true",
@@ -478,7 +499,6 @@ def main(argv: list[str] | None = None) -> None:
     g2p = ChineseOnnxLexiconG2p(
         dict_path=args.dict_path,
         model_dir=args.model_dir,
-        tokenizer_backend=args.tokenizer,
     )
     lines: list[str]
     if args.text:
