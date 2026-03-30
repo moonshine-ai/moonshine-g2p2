@@ -27,3 +27,6 @@ CMU
 
 https://github.com/hbenbel/French-Dictionary
 
+https://github.com/hankcs/HanLP
+
+https://github.com/LuminosoInsight/mecab-ko-dic
