@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
 Download Kokoro-82M PyTorch weights and voice packs from Hugging Face, export the
-acoustic model to FP32 ONNX (voice ``.pt`` tensors stay as downloaded).
+acoustic model to FP32 ONNX (voice ``.pt`` tensors stay as downloaded). After download,
+all ``voices/*.pt`` are also exported to ``*.kokorovoice`` for C++ ``moonshine_tts`` unless
+``--skip-kokorovoice-export`` is set.
 
 ONNX export uses ``disable_complex=True`` (real-valued CustomSTFT path in ``kokoro``),
 because the default complex STFT graph is not ONNX-exportable. Use the same flag for
@@ -15,6 +17,12 @@ Example::
 
     python scripts/download_kokoro_onnx.py --out-dir models/kokoro --verify
 
+To match the C++ default bundle path, copy (or symlink) into ``cpp/data/kokoro``::
+
+    cp -a models/kokoro/config.json models/kokoro/model.onnx models/kokoro/voices \\
+        cpp/data/kokoro/
+    # voices/ should contain ``*.kokorovoice`` (see ``export_kokoro_voice_for_cpp.py``).
+
 Dependencies::
 
     pip install kokoro torch onnx onnxruntime onnxruntime-extensions
@@ -26,6 +34,7 @@ from __future__ import annotations
 import argparse
 import json
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -230,6 +239,25 @@ def verify_onnx(out_dir: Path, *, experimental_int8: Path | None = None) -> int:
     return code
 
 
+def _export_kokorovoice_sidecars(out_dir: Path) -> int:
+    """Run ``export_kokoro_voice_for_cpp.py --voices-dir`` for C++ MoonshineTTS."""
+    voices_dir = out_dir / "voices"
+    if not voices_dir.is_dir():
+        return 0
+    if not any(voices_dir.glob("*.pt")):
+        return 0
+    script = Path(__file__).resolve().parent / "export_kokoro_voice_for_cpp.py"
+    if not script.is_file():
+        print(f"Missing {script}; skipping .kokorovoice export.", file=sys.stderr)
+        return 0
+    print("Exporting voices/*.kokorovoice for C++ (moonshine_tts) …")
+    r = subprocess.run(
+        [sys.executable, str(script), "--voices-dir", str(voices_dir)],
+        check=False,
+    )
+    return int(r.returncode)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--out-dir", type=Path, default=_DEFAULT_OUT, help="Output directory")
@@ -256,6 +284,11 @@ def main(argv: list[str] | None = None) -> None:
         ),
     )
     ap.add_argument("--verify", action="store_true", help="Run numeric parity check after build")
+    ap.add_argument(
+        "--skip-kokorovoice-export",
+        action="store_true",
+        help="Do not run export_kokoro_voice_for_cpp.py on voices/ (C++ needs .kokorovoice separately).",
+    )
     args = ap.parse_args(argv)
 
     out_dir = args.out_dir.resolve()
@@ -285,6 +318,15 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(
             verify_onnx(out_dir, experimental_int8=int8_path if args.experimental_int8 else None)
         )
+
+    if not args.skip_kokorovoice_export:
+        kc = _export_kokorovoice_sidecars(out_dir)
+        if kc != 0:
+            print(
+                "Warning: .kokorovoice export failed; run manually:\n  python scripts/export_kokoro_voice_for_cpp.py "
+                f"--voices-dir {out_dir / 'voices'}",
+                file=sys.stderr,
+            )
 
     print("Done. Assets in:", out_dir)
 

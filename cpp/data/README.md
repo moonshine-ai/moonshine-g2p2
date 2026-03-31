@@ -8,9 +8,11 @@ This tree mirrors assets the C++ `moonshine_g2p` stack expects under a single **
 | [de](de/README.md) | German IPA lexicon |
 | [en_us](en_us/README.md) | English CMU-style lexicon + heteronym/OOV ONNX |
 | [fr](fr/README.md) | French lexicon + liaison POS CSVs |
+| [hi](hi/README.md) | Hindi Devanagari lexicon (Wiktionary + frequency merge) |
 | [it](it/README.md) | Italian IPA lexicon |
 | [ja](ja/README.md) | Japanese lexicon + char-LUW UPOS ONNX |
 | [ko](ko/README.md) | Korean IPA lexicon |
+| [kokoro](kokoro/README.md) | Kokoro-82M ONNX TTS + `.kokorovoice` bundles (`moonshine_tts`) |
 | [nl](nl/README.md) | Dutch IPA lexicon |
 | [pt_br](pt_br/README.md) | Brazilian Portuguese IPA lexicon |
 | [pt_pt](pt_pt/README.md) | European Portuguese IPA lexicon |

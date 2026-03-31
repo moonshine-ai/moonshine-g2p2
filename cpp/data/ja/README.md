@@ -1,5 +1,7 @@
 # Japanese — `ja`
 
+`moonshine_tts` and ``MoonshineTTS`` (with ``use_bundled_cpp_g2p_data``) use ``MoonshineG2POptions::model_root = builtin_cpp_data_root()`` (i.e. this ``cpp/data`` tree), so no ``--model-root`` flag is required for CLI TTS.
+
 ## Contents
 
 - **`dict.tsv`** — surface → IPA lexicon (ipa-dict), used after token-level analysis.
