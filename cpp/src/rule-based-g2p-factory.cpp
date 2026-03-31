@@ -18,6 +18,7 @@
 #include "moonshine-g2p/lang-specific/spanish.h"
 #include "moonshine-g2p/lang-specific/turkish.h"
 #include "moonshine-g2p/lang-specific/ukrainian.h"
+#include "moonshine-g2p/lang-specific/hindi.h"
 #include "moonshine-g2p/utf8-utils.h"
 
 #include <cctype>
@@ -414,6 +415,28 @@ std::optional<RuleBasedG2pInstance> try_ukrainian(std::string_view trimmed,
   return out;
 }
 
+std::optional<RuleBasedG2pInstance> try_hindi(std::string_view trimmed,
+                                            const MoonshineG2POptions& options) {
+  if (!dialect_resolves_to_hindi_rules(trimmed)) {
+    return std::nullopt;
+  }
+  const std::filesystem::path hdict =
+      options.hindi_dict_path.value_or(resolve_hindi_dict_path(options.model_root));
+  if (!std::filesystem::is_regular_file(hdict)) {
+    throw std::runtime_error(
+        "Hindi G2P: lexicon not found at " + hdict.generic_string() +
+        " (set MoonshineG2POptions::hindi_dict_path)");
+  }
+  HindiRuleG2p::Options ho;
+  ho.with_stress = options.hindi_with_stress;
+  ho.expand_cardinal_digits = options.hindi_expand_cardinal_digits;
+  RuleBasedG2pInstance out;
+  out.canonical_dialect_id = "hi-IN";
+  out.kind = RuleBasedG2pKind::Hindi;
+  out.engine = std::make_unique<HindiRuleG2p>(hdict, ho);
+  return out;
+}
+
 std::optional<RuleBasedG2pInstance> try_portuguese(std::string_view trimmed,
                                                   const MoonshineG2POptions& options) {
   const bool want_pt_br = dialect_resolves_to_brazilian_portuguese_rules(trimmed);
@@ -461,6 +484,7 @@ const TryFn kTryChain[] = {
     try_portuguese,
     try_turkish,
     try_ukrainian,
+    try_hindi,
 };
 
 }  // namespace
@@ -496,6 +520,7 @@ std::vector<std::pair<RuleBasedG2pKind, std::vector<std::string>>> rule_based_g2
   out.emplace_back(RuleBasedG2pKind::Portuguese, PortugueseRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Turkish, TurkishRuleG2p::dialect_ids());
   out.emplace_back(RuleBasedG2pKind::Ukrainian, UkrainianRuleG2p::dialect_ids());
+  out.emplace_back(RuleBasedG2pKind::Hindi, HindiRuleG2p::dialect_ids());
   return out;
 }
 

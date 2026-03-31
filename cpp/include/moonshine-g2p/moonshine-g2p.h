@@ -58,6 +58,7 @@ class MoonshineG2P {
   }
   bool uses_turkish_rules() const { return rule_backend_ == RuleBasedG2pKind::Turkish; }
   bool uses_ukrainian_rules() const { return rule_backend_ == RuleBasedG2pKind::Ukrainian; }
+  bool uses_hindi_rules() const { return rule_backend_ == RuleBasedG2pKind::Hindi; }
   bool uses_english_rules() const { return rule_backend_ == RuleBasedG2pKind::English; }
   /// Always false: full-bundle ONNX G2P was removed; English may still load optional heteronym/OOV
   /// ONNX inside ``EnglishRuleG2p``.

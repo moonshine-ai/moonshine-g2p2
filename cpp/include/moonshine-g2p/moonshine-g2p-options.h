@@ -70,6 +70,10 @@ struct MoonshineG2POptions {
   /// Ukrainian rule G2P (``uk``, ``uk-UA``, ``ukrainian``): no external lexicon; optional digit expansion.
   bool ukrainian_with_stress = true;
   bool ukrainian_expand_cardinal_digits = true;
+  /// Hindi rule G2P (``hi``, ``hi-IN``, ``hindi``): ``<model-root>/../data/hi/dict.tsv`` or ``<model-root>/hi/dict.tsv``.
+  std::optional<std::filesystem::path> hindi_dict_path;
+  bool hindi_with_stress = true;
+  bool hindi_expand_cardinal_digits = true;
   /// English rule G2P (``en_us``, ``en-US``, …): ``<model-root>/en_us/dict_filtered_heteronyms.tsv``.
   std::optional<std::filesystem::path> english_dict_path;
   /// Override heteronym / OOV ONNX paths from ``en_us/g2p-config.json`` (English only).
