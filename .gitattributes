@@ -3,6 +3,3 @@
 *.json filter=lfs diff=lfs merge=lfs -text
 *.onnx filter=lfs diff=lfs merge=lfs -text
 *.onnx.data filter=lfs diff=lfs merge=lfs -text
-# Kokoro-82M weights and voice packs (see scripts/download_kokoro_onnx.py)
-models/kokoro/*.pth filter=lfs diff=lfs merge=lfs -text
-models/kokoro/voices/*.pt filter=lfs diff=lfs merge=lfs -text

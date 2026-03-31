@@ -5,3 +5,6 @@ __pycache__
 /oov_runs
 *.tgz
 /oov_out
+*.pt
+*.pth
+/*.wav
