@@ -451,12 +451,18 @@ bool all_ascii_digits_sv(std::string_view s) {
   return true;
 }
 
-std::filesystem::path repo_data_hi_dict_from_here() {
-  return std::filesystem::path(__FILE__).parent_path().parent_path().parent_path().parent_path() /
-         "data" / "hi" / "dict.tsv";
-}
-
 }  // namespace
+
+std::filesystem::path builtin_hindi_dict_path() {
+  const std::filesystem::path here = std::filesystem::path(__FILE__).parent_path();
+  const std::filesystem::path repo_root = here.parent_path().parent_path().parent_path().parent_path();
+  const std::filesystem::path under_repo = repo_root / "data" / "hi" / "dict.tsv";
+  if (std::filesystem::is_regular_file(under_repo)) {
+    return under_repo;
+  }
+  const std::filesystem::path cpp_root = here.parent_path().parent_path().parent_path();
+  return cpp_root / "data" / "hi" / "dict.tsv";
+}
 
 HindiRuleG2p::HindiRuleG2p(std::filesystem::path dict_tsv)
     : HindiRuleG2p(std::move(dict_tsv), Options{}) {}
@@ -585,6 +591,11 @@ std::filesystem::path resolve_hindi_dict_path(const std::filesystem::path& model
   if (std::filesystem::is_regular_file(under_data)) {
     return under_data;
   }
+  const std::filesystem::path under_data2 =
+      model_root.parent_path().parent_path() / "data" / "hi" / "dict.tsv";
+  if (std::filesystem::is_regular_file(under_data2)) {
+    return under_data2;
+  }
   return model_root / "hi" / "dict.tsv";
 }
 
@@ -593,7 +604,7 @@ std::string hindi_text_to_ipa(const std::string& text, bool with_stress,
   HindiRuleG2p::Options o;
   o.with_stress = with_stress;
   o.expand_cardinal_digits = expand_cardinal_digits;
-  HindiRuleG2p g(repo_data_hi_dict_from_here(), std::move(o));
+  HindiRuleG2p g(builtin_hindi_dict_path(), std::move(o));
   return g.text_to_ipa(text, per_word_log);
 }
 

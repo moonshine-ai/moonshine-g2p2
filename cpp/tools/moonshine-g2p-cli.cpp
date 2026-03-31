@@ -68,8 +68,9 @@ void usage(const char *argv0) {
          "<model-root>/../data/pt_br/dict.tsv or pt_pt/dict.tsv; override with --portuguese-dict.\n"
       << "  Turkish (tr, tr-TR, turkish): rule-based G2P (no lexicon); optional cardinal digit expansion.\n"
       << "  Ukrainian (uk, uk-UA, ukrainian): rule-based G2P (no lexicon); optional cardinal digit expansion.\n"
-      << "  Hindi (hi, hi-IN, hindi): Devanagari rules + dict.tsv; default <model-root>/../data/hi/dict.tsv "
-         "or <model-root>/hi/dict.tsv; override with --hindi-dict.\n"
+      << "  Hindi (hi, hi-IN, hindi): lexicon lookup + Devanagari rules; default <model-root>/../data/hi/dict.tsv "
+         "(or grandparent …/data/hi), else <model-root>/hi/dict.tsv; bundled cpp/data/hi/dict.tsv; "
+         "override with --hindi-dict.\n"
       << "  -d PATH / --dict PATH: English CMU TSV (en_us only; overrides default under "
          "<model-root>/en_us/).\n";
 }

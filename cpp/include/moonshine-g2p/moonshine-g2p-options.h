@@ -70,7 +70,8 @@ struct MoonshineG2POptions {
   /// Ukrainian rule G2P (``uk``, ``uk-UA``, ``ukrainian``): no external lexicon; optional digit expansion.
   bool ukrainian_with_stress = true;
   bool ukrainian_expand_cardinal_digits = true;
-  /// Hindi rule G2P (``hi``, ``hi-IN``, ``hindi``): ``<model-root>/../data/hi/dict.tsv`` or ``<model-root>/hi/dict.tsv``.
+  /// Hindi rule G2P (``hi``, ``hi-IN``, ``hindi``): ``<model-root>/../data/hi/dict.tsv`` (or grandparent
+  /// ``…/data/hi/dict.tsv``), else ``<model-root>/hi/dict.tsv``; bundled copy under ``cpp/data/hi/dict.tsv``.
   std::optional<std::filesystem::path> hindi_dict_path;
   bool hindi_with_stress = true;
   bool hindi_expand_cardinal_digits = true;

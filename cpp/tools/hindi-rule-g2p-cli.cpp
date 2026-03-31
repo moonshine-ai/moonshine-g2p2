@@ -12,7 +12,7 @@ namespace {
 void usage(const char* argv0) {
   std::cerr << "Usage: " << argv0
             << " [--dict PATH] [--no-expand-digits] [--no-stress] [--stdin] [TEXT...]\n"
-            << "  Default dict: data/hi/dict.tsv (relative to current directory).\n";
+            << "  Default dict: builtin_hindi_dict_path() — repo data/hi/dict.tsv or cpp/data/hi/dict.tsv.\n";
 }
 
 std::string read_all_stdin() {
@@ -24,7 +24,7 @@ std::string read_all_stdin() {
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::filesystem::path dict_path = std::filesystem::path("data") / "hi" / "dict.tsv";
+  std::filesystem::path dict_path = moonshine_g2p::builtin_hindi_dict_path();
   bool expand_digits = true;
   bool with_stress = true;
   bool force_stdin = false;

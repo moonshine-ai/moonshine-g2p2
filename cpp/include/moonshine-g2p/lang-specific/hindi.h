@@ -45,10 +45,15 @@ class HindiRuleG2p : public RuleBasedG2p {
 
 bool dialect_resolves_to_hindi_rules(std::string_view dialect_id);
 
-/// ``<model-root>/../data/hi/dict.tsv`` or ``<model-root>/hi/dict.tsv``.
+/// Tries ``<model-root>/../data/hi/dict.tsv``, then grandparent ``…/data/hi/dict.tsv`` (e.g. build dirs),
+/// else ``<model-root>/hi/dict.tsv``.
 std::filesystem::path resolve_hindi_dict_path(const std::filesystem::path& model_root);
 
-/// Convenience for tests / CLI (uses ``<repo>/data/hi/dict.tsv`` resolved from this translation unit).
+/// Default lexicon next to the source tree: ``<repo>/data/hi/dict.tsv`` if present, else
+/// ``cpp/data/hi/dict.tsv`` (paths derived from ``hindi.cpp``).
+std::filesystem::path builtin_hindi_dict_path();
+
+/// Convenience for tests / CLI (uses ``builtin_hindi_dict_path()``).
 std::string hindi_text_to_ipa(const std::string& text, bool with_stress = true,
                                 std::vector<G2pWordLog>* per_word_log = nullptr,
                                 bool expand_cardinal_digits = true);
