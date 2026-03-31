@@ -1,4 +1,4 @@
-.venv
+.venv*
 __pycache__
 *.pyc
 /heteronym_runs
@@ -9,3 +9,5 @@ __pycache__
 *.pth
 /*.wav
 .cache
+/training/piper_korean/data/
+/training/piper_korean/work/
