@@ -2,12 +2,29 @@
 
 #include "moonshine-g2p/utf8-utils.h"
 
+extern "C" {
+#include <utf8proc.h>
+}
+
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
+#include <cstdlib>
+#include <string_view>
+#include <unordered_map>
+#include <vector>
 
 namespace moonshine_g2p {
 
 namespace {
+
+void replace_utf8_all(std::string& s, std::string_view old_utf8, std::string_view new_utf8) {
+  size_t pos = 0;
+  while ((pos = s.find(old_utf8, pos)) != std::string::npos) {
+    s.replace(pos, old_utf8.size(), new_utf8);
+    pos += new_utf8.size();
+  }
+}
 
 std::string trim_copy(std::string t) {
   auto not_space = [](unsigned char c) { return !std::isspace(c); };
@@ -17,8 +34,7 @@ std::string trim_copy(std::string t) {
 }
 
 std::string strip_length_markers_copy(std::string t) {
-  // Python: e1 = e0.replace("ː", "")  (U+02D0 MODIFIER LETTER TRIANGULAR COLON)
-  const std::string mark = "\xCB\x90";  // UTF-8 for U+02D0
+  const std::string mark = "\xCB\x90";  // UTF-8 U+02D0
   size_t p = 0;
   while ((p = t.find(mark, p)) != std::string::npos) {
     t.erase(p, mark.size());
@@ -26,7 +42,192 @@ std::string strip_length_markers_copy(std::string t) {
   return t;
 }
 
+void apply_shared_g2p_to_piper_replacements(std::string& s) {
+  static const char kG2pRhoticStressed[] = "\xC9\x9D";      // U+025D ɝ
+  static const char kEspeakRhoticStressed[] = "\xC9\x9C"   // U+025C ɜ
+                                              "\xCB\x90";  // U+02D0 ː
+  replace_utf8_all(s, kG2pRhoticStressed, kEspeakRhoticStressed);
+}
+
+void apply_lang_specific_replacements(std::string& s, std::string_view piper_lang_key) {
+  // Mirror ``piper_ipa_normalization.LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS`` when non-empty.
+  static const std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> kLangReplacements{};
+  const std::string key(piper_lang_key);
+  const auto it = kLangReplacements.find(key);
+  if (it == kLangReplacements.end()) {
+    return;
+  }
+  for (const auto& pr : it->second) {
+    replace_utf8_all(s, pr.first, pr.second);
+  }
+}
+
+bool py_isspace_one_utf8_char(std::string_view ch) {
+  if (ch.empty()) {
+    return false;
+  }
+  std::string tmp(ch);
+  char32_t cp = 0;
+  size_t adv = 0;
+  if (!utf8_decode_at(tmp, 0, cp, adv) || adv != tmp.size()) {
+    return false;
+  }
+  if (cp < 128) {
+    return std::isspace(static_cast<unsigned char>(cp)) != 0;
+  }
+  const auto cat = static_cast<utf8proc_category_t>(utf8proc_category(static_cast<utf8proc_int32_t>(cp)));
+  return cat == UTF8PROC_CATEGORY_ZS || cat == UTF8PROC_CATEGORY_ZL || cat == UTF8PROC_CATEGORY_ZP;
+}
+
+bool unicode_category_first_char_is_p_or_s(char32_t cp) {
+  const char* cs = utf8proc_category_string(static_cast<utf8proc_int32_t>(cp));
+  return cs != nullptr && (cs[0] == 'P' || cs[0] == 'S');
+}
+
+bool category_is_mn_or_me(char32_t cp) {
+  const auto cat = static_cast<utf8proc_category_t>(utf8proc_category(static_cast<utf8proc_int32_t>(cp)));
+  return cat == UTF8PROC_CATEGORY_MN || cat == UTF8PROC_CATEGORY_ME;
+}
+
+bool is_ipa_like_inventory_char(char32_t cp) {
+  const auto cat = static_cast<utf8proc_category_t>(utf8proc_category(static_cast<utf8proc_int32_t>(cp)));
+  switch (cat) {
+    case UTF8PROC_CATEGORY_LU:
+    case UTF8PROC_CATEGORY_LL:
+    case UTF8PROC_CATEGORY_LT:
+    case UTF8PROC_CATEGORY_LM:
+    case UTF8PROC_CATEGORY_LO:
+      return true;
+    default:
+      break;
+  }
+  if (cp >= 0x250 && cp <= 0x2FF) {
+    return true;
+  }
+  if (cp >= 0x300 && cp <= 0x36F) {
+    return true;
+  }
+  if (cp >= 0x1D00 && cp <= 0x1D7F) {
+    return true;
+  }
+  return false;
+}
+
+char32_t utf8_singleton_codepoint(std::string_view token) {
+  std::string tmp(token);
+  char32_t cp = 0;
+  size_t adv = 0;
+  if (!utf8_decode_at(tmp, 0, cp, adv) || adv != tmp.size()) {
+    return 0;
+  }
+  return cp;
+}
+
 }  // namespace
+
+std::string utf8_nfc_copy(std::string_view s) {
+  const std::string tmp(s);
+  utf8proc_uint8_t* p =
+      utf8proc_NFC(reinterpret_cast<const utf8proc_uint8_t*>(tmp.c_str()));
+  if (p == nullptr) {
+    return std::string(s);
+  }
+  std::string out(reinterpret_cast<char*>(p));
+  std::free(p);
+  return out;
+}
+
+std::string normalize_g2p_ipa_for_piper(std::string_view ipa_utf8, std::string_view piper_lang_key) {
+  std::string s = utf8_nfc_copy(ipa_utf8);
+  apply_shared_g2p_to_piper_replacements(s);
+  apply_lang_specific_replacements(s, piper_lang_key);
+  return s;
+}
+
+std::string coerce_unknown_ipa_chars_to_piper_inventory(
+    std::string_view ipa_utf8, const std::unordered_set<std::string>& phoneme_id_map_keys, const bool use_closest_scalar) {
+  const std::string nfc = utf8_nfc_copy(ipa_utf8);
+  std::vector<char32_t> pool;
+  for (const std::string& k : phoneme_id_map_keys) {
+    const auto parts = utf8_split_codepoints(k);
+    if (parts.size() != 1) {
+      continue;
+    }
+    const char32_t cp = utf8_singleton_codepoint(parts[0]);
+    if (cp == 0) {
+      continue;
+    }
+    if (is_ipa_like_inventory_char(cp)) {
+      pool.push_back(cp);
+    }
+  }
+  if (pool.empty()) {
+    for (const std::string& k : phoneme_id_map_keys) {
+      const auto parts = utf8_split_codepoints(k);
+      if (parts.size() != 1) {
+        continue;
+      }
+      const char32_t cp = utf8_singleton_codepoint(parts[0]);
+      if (cp != 0) {
+        pool.push_back(cp);
+      }
+    }
+  }
+  std::sort(pool.begin(), pool.end());
+  pool.erase(std::unique(pool.begin(), pool.end()), pool.end());
+
+  std::string out;
+  out.reserve(nfc.size() + 8);
+  for (const std::string& ch : utf8_split_codepoints(nfc)) {
+    if (py_isspace_one_utf8_char(ch)) {
+      out += ch;
+      continue;
+    }
+    if (phoneme_id_map_keys.count(ch) != 0) {
+      out += ch;
+      continue;
+    }
+    const char32_t cp = utf8_singleton_codepoint(ch);
+    if (cp == 0) {
+      continue;
+    }
+    if (category_is_mn_or_me(cp)) {
+      continue;
+    }
+    if (unicode_category_first_char_is_p_or_s(cp)) {
+      continue;
+    }
+    if (use_closest_scalar && !pool.empty()) {
+      char32_t best = pool[0];
+      int best_metric = std::abs(static_cast<int>(cp) - static_cast<int>(best));
+      for (size_t i = 1; i < pool.size(); ++i) {
+        const char32_t cand = pool[i];
+        const int d = std::abs(static_cast<int>(cp) - static_cast<int>(cand));
+        if (d < best_metric || (d == best_metric && cand < best)) {
+          best = cand;
+          best_metric = d;
+        }
+      }
+      utf8_append_codepoint(out, best);
+    }
+  }
+  return out;
+}
+
+std::string ipa_to_piper_ready(std::string_view ipa_utf8, std::string_view piper_lang_key,
+                               const std::unordered_set<std::string>& phoneme_id_map_keys, const bool apply_coercion) {
+  std::string s = normalize_g2p_ipa_for_piper(ipa_utf8, piper_lang_key);
+  if (apply_coercion) {
+    s = coerce_unknown_ipa_chars_to_piper_inventory(s, phoneme_id_map_keys, true);
+  }
+  return s;
+}
+
+std::string normalize_g2p_ipa_for_piper_engines(std::string_view ipa_utf8) {
+  std::string s(ipa_utf8);
+  apply_shared_g2p_to_piper_replacements(s);
+  return s;
+}
 
 std::vector<std::string> ipa_string_to_phoneme_tokens(const std::string& s) {
   std::string t = trim_copy(s);

@@ -24,7 +24,7 @@ cmake --build .
 
 ## C++ bundled data (`cpp/data/`)
 
-The [`cpp/data/`](cpp/data/README.md) tree holds lexicons, ONNX exports, and Kokoro TTS assets consumed by the C++ targets (`moonshine_g2p`, `moonshine_tts`) when using `builtin_cpp_data_root()`. Each subfolder has its own **README** with provenance, licenses, and rebuild commands. All of these are available under permissive licenses (like MIT, Apache v2, etc) and can be used commercially. You can follow the links to the original projects to verify this, and please [contact me](mailto:pete@moonshine.ai) if you spot a mistake. 
+The [`cpp/data/`](cpp/data/README.md) tree holds lexicons, ONNX exports, and Kokoro TTS assets consumed by the C++ targets (`moonshine_g2p`, `moonshine_tts`) when using `builtin_cpp_data_root()`. Each subfolder has its own **README** with provenance, licenses, and rebuild commands. You can follow the links to the original projects to verify that all of these are available under permissive licenses (like MIT, Apache v2, etc) and can be used commercially. Please [contact me](mailto:pete@moonshine.ai) if you spot a mistake. 
 
 | Directory | Main upstream sources | README |
 |-----------|----------------------|--------|
