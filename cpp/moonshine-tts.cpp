@@ -118,8 +118,9 @@ const LangProfile* lookup_lang_profile(std::string_view key) {
       {"en_us", {'a', "af_heart", "en_us"}},
       {"en-us", {'a', "af_heart", "en_us"}},
       {"en", {'a', "af_heart", "en_us"}},
-      {"en_gb", {'b', "bf_emma", "en_gb"}},
-      {"en-gb", {'b', "bf_emma", "en_gb"}},
+      // UK Kokoro voice uses the same English rule + ONNX G2P assets as US (``en_us`` under cpp/data).
+      {"en_gb", {'b', "bf_emma", "en_us"}},
+      {"en-gb", {'b', "bf_emma", "en_us"}},
       // Spanish G2P must be a concrete dialect id (same default as spanish_rule_g2p.text_to_ipa).
       {"es", {'e', "ef_dora", "es-MX"}},
       {"fr", {'f', "ff_siwis", "fr"}},
@@ -366,14 +367,44 @@ struct MoonshineTTS::Impl {
 
   std::string voice_id_{};
   double speed_ = 1.0;
+  /// ``speed`` ONNX input element type from the loaded graph (FP32 community ONNX vs double local export).
+  ONNXTensorElementDataType speed_elem_type_ = ONNX_TENSOR_ELEMENT_DATA_TYPE_DOUBLE;
   char kokoro_lang_ = 'a';
   LangProfile profile_{};
   std::string g2p_dialect_{};
   MoonshineG2POptions g2p_opt_{};
   std::unique_ptr<MoonshineG2P> g2p_{};
 
+  void detect_speed_input_element_type() {
+    // Kokoro ONNX convention: inputs [0]=input_ids, [1]=ref_s, [2]=speed. Community HF models use
+    // float32 speed [1]; local torch exports use double scalar.
+    const size_t n_in = session_.GetInputCount();
+    if (n_in < 3) {
+      return;
+    }
+    Ort::TypeInfo ti = session_.GetInputTypeInfo(2);
+    if (ti.GetONNXType() != ONNX_TYPE_TENSOR) {
+      return;
+    }
+    const auto tinfo = ti.GetTensorTypeAndShapeInfo();
+    speed_elem_type_ = static_cast<ONNXTensorElementDataType>(tinfo.GetElementType());
+  }
+
   explicit Impl(MoonshineTTSOptions opt) : speed_(opt.speed) {
-    kokoro_dir_ = opt.kokoro_dir.empty() ? builtin_kokoro_bundle_dir() : std::move(opt.kokoro_dir);
+    g2p_opt_ = std::move(opt.g2p_options);
+    if (opt.use_bundled_cpp_g2p_data) {
+      g2p_opt_.model_root = builtin_cpp_data_root();
+    }
+    if (opt.kokoro_dir.empty()) {
+      kokoro_dir_ = opt.use_bundled_cpp_g2p_data ? builtin_kokoro_bundle_dir()
+                                                   : (g2p_opt_.model_root / "kokoro");
+    } else {
+      kokoro_dir_ = std::move(opt.kokoro_dir);
+    }
+    if (!opt.use_bundled_cpp_g2p_data && g2p_opt_.model_root.empty()) {
+      throw std::runtime_error(
+          "MoonshineTTS: g2p_options.model_root must be set when use_bundled_cpp_g2p_data is false");
+    }
     if (!std::filesystem::is_directory(kokoro_dir_)) {
       throw std::runtime_error("MoonshineTTS: kokoro_dir is not a directory: " + kokoro_dir_.string());
     }
@@ -406,11 +437,8 @@ struct MoonshineTTS::Impl {
     const std::string u8 = onnx_path.string();
     session_ = Ort::Session(env_, u8.c_str(), session_opts);
 #endif
+    detect_speed_input_element_type();
     const std::string lk = normalize_lang_key(opt.lang);
-    g2p_opt_ = std::move(opt.g2p_options);
-    if (opt.use_bundled_cpp_g2p_data) {
-      g2p_opt_.model_root = builtin_cpp_data_root();
-    }
     resolve_lang_for_tts(lk, g2p_opt_, profile_, g2p_dialect_);
     kokoro_lang_ = profile_.kokoro_lang;
     g2p_ = std::make_unique<MoonshineG2P>(g2p_dialect_, g2p_opt_);
@@ -506,14 +534,21 @@ struct MoonshineTTS::Impl {
                 voice_.begin() + static_cast<std::ptrdiff_t>(off + voice_cols_), ref_row.begin());
       const std::array<int64_t, 2> shape_ref{1, static_cast<int64_t>(voice_cols_)};
 
-      double speed_val = speed_;
       std::vector<Ort::Value> inputs;
       inputs.push_back(Ort::Value::CreateTensor<int64_t>(
           mem_, ids.data(), ids.size(), shape_ids.data(), shape_ids.size()));
       inputs.push_back(Ort::Value::CreateTensor<float>(
           mem_, ref_row.data(), ref_row.size(), shape_ref.data(), shape_ref.size()));
-      inputs.push_back(
-          Ort::Value::CreateTensor<double>(mem_, &speed_val, 1, nullptr, 0));
+      if (speed_elem_type_ == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT) {
+        float speed_f = static_cast<float>(speed_);
+        const std::array<int64_t, 1> shape_speed{1};
+        inputs.push_back(
+            Ort::Value::CreateTensor<float>(mem_, &speed_f, 1, shape_speed.data(), 1));
+      } else {
+        double speed_val = speed_;
+        inputs.push_back(
+            Ort::Value::CreateTensor<double>(mem_, &speed_val, 1, nullptr, 0));
+      }
 
       Ort::RunOptions run_opts{nullptr};
       auto outputs = session_.Run(run_opts, in_names, inputs.data(), inputs.size(), out_names, 1);

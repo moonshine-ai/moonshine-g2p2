@@ -17,13 +17,15 @@
 
 ### ONNX directory (`arabertv02_tashkeel_fadel_onnx/`)
 
-1. Install build deps: `pip install torch transformers onnx onnxruntime` (versions compatible with your PyTorch).
+1. Install build deps: `pip install torch transformers onnx onnxruntime onnx-shrink-ray onnx-graphsurgeon` (PyTorch stack as needed).
 2. From repo root:
 
    ```bash
    python scripts/export_arabic_msa_diacritizer_onnx.py \
      --out-dir data/ar_msa/arabertv02_tashkeel_fadel_onnx
    ```
+
+   By default the export runs **onnx-shrink-ray** `quantize_weights` on `model.onnx` (int8 weight storage + dequant nodes; `float_quantization=False`, weights only). To skip: `--no-shrink-weights`. To shrink an existing FP32 `model.onnx` without re-exporting: `--only-shrink` with the same `--out-dir`.
 
 3. C++ expects at least: `model.onnx`, `meta.json`, `vocab.txt`, `tokenizer_config.json` (plus any files the tokenizer saved alongside them).
 

@@ -7,6 +7,7 @@ __pycache__
 /oov_out
 *.pt
 *.pth
+*.bak
 /*.wav
 .cache
 /training/piper_korean/data/

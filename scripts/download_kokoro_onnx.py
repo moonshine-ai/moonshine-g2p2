@@ -9,9 +9,20 @@ ONNX export uses ``disable_complex=True`` (real-valued CustomSTFT path in ``koko
 because the default complex STFT graph is not ONNX-exportable. Use the same flag for
 PyTorch when comparing to ONNX (``speak.py`` does this automatically for local ``.pth``).
 
-**INT8:** ONNX Runtime dynamic weight quantization (MatMul/Gemm) was tested on this graph
+**INT8 (ORT dynamic):** ONNX Runtime dynamic weight quantization (MatMul/Gemm) was tested on this graph
 and breaks duration prediction, producing unrelated audio. The optional flag
 ``--experimental-int8`` still writes ``model.int8.onnx`` for research; default builds omit it.
+
+**Weight packing (optional):** You can run ``onnx-shrink-ray`` ``quantize_weights`` on ``model.onnx``
+(int8 weight storage + dequant; ``float_quantization=False``). **This is not ORT dynamic quantization,**
+but on Kokoro it still **breaks the built-in PyTorch vs ONNX waveform parity check** (correlation drops
+from ~0.997 to ~0.1 in ``--verify``). Default export stays **FP32**. Use only if you accept the risk
+and validate audio yourself::
+
+    python scripts/download_kokoro_onnx.py --out-dir cpp/data/kokoro --only-shrink
+
+``--only-shrink`` re-packs an existing ``model.onnx`` (same caveat). After a fresh export, add
+``--shrink-weights`` to pack weights in the same pass.
 
 Example::
 
@@ -26,7 +37,8 @@ To match the C++ default bundle path, copy (or symlink) into ``cpp/data/kokoro``
 Dependencies::
 
     pip install kokoro torch onnx onnxruntime onnxruntime-extensions
-    # plus huggingface_hub; quantization uses onnxruntime.quantization
+    # optional shrink: pip install onnx-shrink-ray onnx-graphsurgeon
+    # plus huggingface_hub; ORT experimental path uses onnxruntime.quantization
 """
 
 from __future__ import annotations
@@ -38,12 +50,75 @@ import subprocess
 import sys
 from pathlib import Path
 
+import numpy as np
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_OUT = _REPO_ROOT / "models" / "kokoro"
 _REPO_ID = "hexgrad/Kokoro-82M"
 _WEIGHTS_NAME = "kokoro-v1_0.pth"
 _ONNX_NAME = "model.onnx"
 _EXPORT_META = "onnx_export_meta.json"
+
+
+def _patch_onnx_for_onnx_graphsurgeon() -> None:
+    import onnx.helper as h
+
+    if not hasattr(h, "float32_to_bfloat16"):
+
+        def float32_to_bfloat16(x: np.ndarray) -> np.ndarray:
+            x = np.asarray(x, dtype=np.float32)
+            ui = x.view(np.uint32)
+            return ((ui + np.uint32(0x8000)) >> np.uint32(16)).astype(np.uint16)
+
+        h.float32_to_bfloat16 = float32_to_bfloat16  # type: ignore[method-assign]
+
+    if not hasattr(h, "float32_to_float8e4m3"):
+
+        def float32_to_float8e4m3(x, fn=True, uz=False):
+            raise RuntimeError("float32_to_float8e4m3 compat stub: not used")
+
+        h.float32_to_float8e4m3 = float32_to_float8e4m3  # type: ignore[method-assign]
+
+
+def _shrink_onnx_weights(
+    onnx_path: Path,
+    *,
+    min_elements: int,
+    verbose: bool,
+) -> None:
+    _patch_onnx_for_onnx_graphsurgeon()
+    try:
+        from onnx_shrink_ray.shrink import quantize_weights
+    except ImportError as e:
+        raise SystemExit(
+            "ONNX shrink requires onnx-shrink-ray. Install with "
+            "`pip install onnx-shrink-ray onnx-graphsurgeon` or pass --no-shrink-weights."
+        ) from e
+
+    import onnx
+
+    model = onnx.load(str(onnx_path))
+    new_model = quantize_weights(
+        model,
+        min_elements=min_elements,
+        float_quantization=False,
+        verbose=verbose,
+    )
+    sidecar = onnx_path.parent / (onnx_path.name + ".data")
+    if sidecar.is_file():
+        sidecar.unlink()
+    onnx.save(new_model, str(onnx_path))
+
+
+def _clamp_onnx_ir_version(onnx_path: Path, *, max_ir: int) -> None:
+    import onnx
+
+    model = onnx.load(str(onnx_path))
+    if model.ir_version <= max_ir:
+        return
+    model.ir_version = max_ir
+    onnx.checker.check_model(model)
+    onnx.save(model, str(onnx_path))
 
 
 def _download_assets(
@@ -273,6 +348,22 @@ def main(argv: list[str] | None = None) -> None:
         help="Comma-separated voice ids to fetch (e.g. af_heart,ef_dora). Default: all.",
     )
     ap.add_argument("--opset", type=int, default=17)
+    ap.add_argument(
+        "--only-shrink",
+        action="store_true",
+        help="Skip download/export; run onnx-shrink-ray on existing out-dir/model.onnx (breaks --verify parity).",
+    )
+    ap.add_argument(
+        "--shrink-weights",
+        action="store_true",
+        help=(
+            "After export (or with --only-shrink), pack weights via onnx-shrink-ray. "
+            "Breaks --verify parity for Kokoro; use for size experiments only."
+        ),
+    )
+    ap.add_argument("--shrink-min-elements", type=int, default=16 * 1024)
+    ap.add_argument("--shrink-verbose", action="store_true")
+    ap.add_argument("--max-onnx-ir", type=int, default=11)
     ap.add_argument("--skip-download", action="store_true", help="Reuse files in out-dir")
     ap.add_argument("--skip-export", action="store_true")
     ap.add_argument(
@@ -292,6 +383,23 @@ def main(argv: list[str] | None = None) -> None:
     args = ap.parse_args(argv)
 
     out_dir = args.out_dir.resolve()
+    onnx_path = out_dir / _ONNX_NAME
+
+    if args.only_shrink:
+        if not onnx_path.is_file():
+            raise SystemExit(f"--only-shrink: missing {onnx_path}")
+        print("Shrinking Kokoro weights (onnx-shrink-ray, int8 storage + dequant)…", file=sys.stderr)
+        _shrink_onnx_weights(
+            onnx_path,
+            min_elements=args.shrink_min_elements,
+            verbose=args.shrink_verbose,
+        )
+        _clamp_onnx_ir_version(onnx_path, max_ir=args.max_onnx_ir)
+        print("Updated", onnx_path)
+        if args.verify:
+            raise SystemExit(verify_onnx(out_dir, experimental_int8=None))
+        return
+
     if not args.skip_download:
         vnames = [x.strip() for x in args.voices.split(",")] if args.voices else None
         _download_assets(
@@ -303,12 +411,20 @@ def main(argv: list[str] | None = None) -> None:
 
     weights_path = out_dir / _WEIGHTS_NAME
     config_path = out_dir / "config.json"
-    onnx_path = out_dir / _ONNX_NAME
     int8_path = out_dir / "model.int8.onnx"
 
     if not args.skip_export:
         print("Exporting ONNX to", onnx_path)
         _export_onnx(weights_path, config_path, onnx_path, args.opset)
+        if args.shrink_weights:
+            print("Shrinking Kokoro weights (onnx-shrink-ray)…", file=sys.stderr)
+            _shrink_onnx_weights(
+                onnx_path,
+                min_elements=args.shrink_min_elements,
+                verbose=args.shrink_verbose,
+            )
+            print("(weights: int8 storage via onnx-shrink-ray)", file=sys.stderr)
+        _clamp_onnx_ir_version(onnx_path, max_ir=args.max_onnx_ir)
 
     if args.experimental_int8:
         print("Writing experimental INT8 model to", int8_path)

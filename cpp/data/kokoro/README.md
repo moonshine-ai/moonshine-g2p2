@@ -5,7 +5,7 @@ This directory is the **default Kokoro ONNX bundle** for the C++ CLI and `Moonsh
 | Path | Role |
 |------|------|
 | `config.json` | Model config (includes phoneme `vocab` for ONNX). |
-| `model.onnx` | Kokoro-82M acoustic model, FP32, exported with `disable_complex=True`. |
+| `model.onnx` | Kokoro-82M acoustic ONNX (this repo often ships the **8-bit–quantized** build from [onnx-community/Kokoro-82M-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-ONNX) `onnx/model_quantized.onnx`, patched for C++; or a **local FP32** export from `scripts/download_kokoro_onnx.py`). |
 | `voices/*.kokorovoice` | Style tensors for ONNX inference (C++ cannot load Hugging Face `voices/*.pt` pickles). |
 
 Optional in a **build tree** (not required under `cpp/data` if you only ship C++): `kokoro-v1_0.pth` (PyTorch weights, for re-exporting ONNX), `voices/*.pt` (source for `.kokorovoice`), `onnx_export_meta.json` (written by the download/export script).
@@ -15,7 +15,24 @@ Optional in a **build tree** (not required under `cpp/data` if you only ship C++
 | Asset | Source |
 |--------|--------|
 | **Weights, config, native voices (`voices/*.pt`)** | [hexgrad/Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) on Hugging Face (see upstream **VOICES.md** for voice IDs and locales). |
-| **`model.onnx`** | Produced locally by `scripts/download_kokoro_onnx.py`, which uses the **`kokoro`** Python package (`KModel`, `KModelForONNX`) and `torch.onnx.export`. Export uses **`disable_complex=True`** so the graph matches ONNX Runtime (real-valued STFT path). |
+| **`model.onnx`** | Either: **(A)** `scripts/fetch_hf_kokoro_quantized_onnx.py` — downloads [onnx-community/Kokoro-82M-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-ONNX) `onnx/model_quantized.onnx` (~92 MiB) and renames input `style` → `ref_s` for `MoonshineTTS`; or **(B)** `scripts/download_kokoro_onnx.py` — local FP32 export via **`kokoro`** (`KModel`, `KModelForONNX`) with **`disable_complex=True`**. |
+
+`MoonshineTTS` passes **`speed`** as float32 `[1]` or double scalar depending on the graph (detected at load time; ONNX Runtime requires `GetInputTypeInfo(i).GetONNXType() == ONNX_TYPE_TENSOR` before reading the element type).
+
+### Optional: onnx-shrink-ray weight packing
+
+The same **onnx-shrink-ray** `quantize_weights` path used for Arabic BERT (int8 weight storage + dequant,
+`float_quantization=False`) **does not preserve numeric parity** for Kokoro: `download_kokoro_onnx.py --verify`
+drops from correlation ~0.997 (FP32) to ~0.1 after shrink, so **the bundled `cpp/data/kokoro/model.onnx`
+stays FP32**. For experiments you can run:
+
+```bash
+python scripts/download_kokoro_onnx.py --out-dir cpp/data/kokoro --only-shrink
+# or after export:  --shrink-weights
+```
+
+Expect a smaller file (~80 MiB vs ~310 MiB) but **validate audio** before shipping; ORT dynamic MatMul/Gemm
+quantization (`--experimental-int8`) is also known to break prosody (see script docstring).
 | **`*.kokorovoice`** | Produced by `scripts/export_kokoro_voice_for_cpp.py` from each `voices/*.pt` tensor pack. Format: magic `KVO1`, little-endian `uint32` rows/cols, row-major `float32` data (after squeezing singleton dims to shape `[N, 256]`). |
 
 Python TTS in this repo (`speak.py`) can use the same HF bundle or PyTorch weights; the C++ path is **ONNX + `.kokorovoice` only**.
@@ -24,9 +41,20 @@ Python TTS in this repo (`speak.py`) can use the same HF bundle or PyTorch weigh
 
 ```bash
 pip install kokoro torch onnx onnxruntime onnxruntime-extensions huggingface_hub
+# optional weight-pack experiments: pip install onnx-shrink-ray onnx-graphsurgeon
 ```
 
 Versions drift over time; if export fails, align with the `kokoro` release compatible with the checkpoint (see HF model card).
+
+## Install prebuilt quantized ONNX (smaller bundle)
+
+From the repo root (requires `pip install huggingface_hub onnx`):
+
+```bash
+python scripts/fetch_hf_kokoro_quantized_onnx.py --backup
+```
+
+`--backup` saves any existing `model.onnx` as `model.onnx.fp32.bak`. To restore FP32 after experimenting: `cp model.onnx.fp32.bak model.onnx`.
 
 ## Rebuild everything (recommended flow)
 

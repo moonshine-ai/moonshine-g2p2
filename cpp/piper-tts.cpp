@@ -338,6 +338,7 @@ struct PiperTTS::Impl {
   std::string default_onnx_{};
   std::string onnx_basename_request_{};
   bool user_voices_dir_ = false;
+  bool use_bundled_cpp_g2p_data_ = true;
   std::vector<std::string> ort_provider_names_{};
   bool piper_normalize_audio_ = true;
   float piper_output_volume_ = 1.F;
@@ -434,14 +435,25 @@ struct PiperTTS::Impl {
         noise_scale_override_(opt.piper_noise_scale_override),
         noise_w_override_(opt.piper_noise_w_override) {
     g2p_opt_ = opt.g2p_options;
+    use_bundled_cpp_g2p_data_ = opt.use_bundled_cpp_g2p_data;
     if (opt.use_bundled_cpp_g2p_data) {
       g2p_opt_.model_root = builtin_cpp_data_root();
     }
     user_voices_dir_ = !opt.voices_dir.empty();
     resolve_piper_lang(opt.lang, g2p_opt_, g2p_dialect_, data_subdir_, default_onnx_);
     piper_ipa_lang_key_ = piper_ipa_norm_lang_key(opt.lang, data_subdir_);
-    voices_dir_ =
-        user_voices_dir_ ? std::filesystem::path(opt.voices_dir) : builtin_piper_voices_dir(data_subdir_);
+    if (user_voices_dir_) {
+      voices_dir_ = std::filesystem::path(opt.voices_dir);
+    } else if (opt.use_bundled_cpp_g2p_data) {
+      voices_dir_ = builtin_piper_voices_dir(data_subdir_);
+    } else {
+      if (g2p_opt_.model_root.empty()) {
+        throw std::runtime_error(
+            "PiperTTS: g2p_options.model_root must be set when use_bundled_cpp_g2p_data is false "
+            "and voices_dir is empty");
+      }
+      voices_dir_ = g2p_opt_.model_root / data_subdir_ / "piper-voices";
+    }
     onnx_basename_request_ = opt.onnx_model;
     onnx_path_ = pick_onnx_path(voices_dir_, onnx_basename_request_, default_onnx_);
     reload_session_from_onnx();
@@ -459,7 +471,11 @@ struct PiperTTS::Impl {
     resolve_piper_lang(lk, g2p_opt_, g2p_dialect_, data_subdir_, default_onnx_);
     piper_ipa_lang_key_ = piper_ipa_norm_lang_key(lk, data_subdir_);
     if (!user_voices_dir_) {
-      voices_dir_ = builtin_piper_voices_dir(data_subdir_);
+      if (use_bundled_cpp_g2p_data_) {
+        voices_dir_ = builtin_piper_voices_dir(data_subdir_);
+      } else {
+        voices_dir_ = g2p_opt_.model_root / data_subdir_ / "piper-voices";
+      }
     }
     onnx_path_ = pick_onnx_path(voices_dir_, onnx_basename_request_, default_onnx_);
     reload_session_from_onnx();

@@ -15,11 +15,12 @@ namespace {
 void usage(const char* argv0) {
   std::cerr
       << "Usage: " << argv0
-      << " [--engine kokoro|piper] [--kokoro-dir DIR] [--piper-voices-dir DIR] [--lang LANG] [--voice ID] "
-         "[--speed N] [-o out.wav] [--text \"...\"] [TEXT...]\n"
-      << "  G2P assets: always ``cpp/data`` (``builtin_cpp_data_root()``). Japanese: ``cpp/data/ja/``.\n"
-      << "  kokoro (default): bundle ``cpp/data/kokoro``. Override with ``--kokoro-dir``.\n"
-      << "  piper: ONNX under ``cpp/data/<lang>/piper-voices``. Override with ``--piper-voices-dir``.\n"
+      << " [--engine kokoro|piper] [--model-root DIR] [--kokoro-dir DIR] [--piper-voices-dir DIR] "
+         "[--lang LANG] [--voice ID] [--speed N] [-o out.wav] [--text \"...\"] [TEXT...]\n"
+      << "  G2P + layout: default ``builtin_cpp_data_root()`` (``cpp/data``). With ``--model-root DIR``, "
+         "G2P uses ``DIR`` like ``cpp/data`` (``ja/``, ``en_us/``, ``zh_hans/``, …).\n"
+      << "  kokoro (default): ``kokoro/`` under model root (or ``--kokoro-dir`` override).\n"
+      << "  piper: ``<subdir>/piper-voices`` under model root (or ``--piper-voices-dir`` override).\n"
       << "  If --lang is omitted, a simple script heuristic picks ja (kana), ko (Hangul), else en_us.\n"
       << "  Custom layouts: use ``MoonshineTTS`` / ``PiperTTS`` from C++ with ``use_bundled_cpp_g2p_data = false``.\n"
       << "  Export Kokoro voices: python scripts/export_kokoro_voice_for_cpp.py --voices-dir voices/\n"
@@ -64,6 +65,7 @@ int main(int argc, char** argv) {
   using moonshine_g2p::write_wav_mono_pcm16;
 
   std::string engine = "kokoro";
+  std::filesystem::path model_root;
   std::filesystem::path kokoro_dir;
   std::filesystem::path piper_voices_dir;
   std::string lang = "en_us";
@@ -82,6 +84,8 @@ int main(int argc, char** argv) {
     }
     if (a == "--engine" && i + 1 < argc) {
       engine = argv[++i];
+    } else if (a == "--model-root" && i + 1 < argc) {
+      model_root = argv[++i];
     } else if (a == "--kokoro-dir" && i + 1 < argc) {
       kokoro_dir = argv[++i];
     } else if (a == "--piper-voices-dir" && i + 1 < argc) {
@@ -139,7 +143,12 @@ int main(int argc, char** argv) {
       opt.lang = lang;
       opt.voice = voice;
       opt.speed = speed;
-      opt.use_bundled_cpp_g2p_data = true;
+      if (!model_root.empty()) {
+        opt.use_bundled_cpp_g2p_data = false;
+        opt.g2p_options.model_root = model_root;
+      } else {
+        opt.use_bundled_cpp_g2p_data = true;
+      }
       MoonshineTTS tts(opt);
       const std::vector<float> wav = tts.synthesize(text);
       if (wav.empty()) {
@@ -155,7 +164,12 @@ int main(int argc, char** argv) {
       opt.lang = lang;
       opt.onnx_model = voice;
       opt.speed = speed;
-      opt.use_bundled_cpp_g2p_data = true;
+      if (!model_root.empty()) {
+        opt.use_bundled_cpp_g2p_data = false;
+        opt.g2p_options.model_root = model_root;
+      } else {
+        opt.use_bundled_cpp_g2p_data = true;
+      }
       PiperTTS tts(opt);
       const std::vector<float> wav = tts.synthesize(text);
       if (wav.empty()) {
