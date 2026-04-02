@@ -18,13 +18,13 @@ def _find_cli_binary() -> Path:
         p = Path(env)
         if p.is_file():
             return p
-    for rel in (Path("cpp/build/moonshine_g2p"),):
+    for rel in (Path("moonshine-tts/build/moonshine_g2p"),):
         p = ROOT / rel
         if p.is_file():
             return p
     raise unittest.SkipTest(
         "moonshine_g2p binary not found; build with "
-        "`cmake -S cpp -B cpp/build && cmake --build cpp/build` "
+        "`cmake -S moonshine-tts -B moonshine-tts/build && cmake --build moonshine-tts/build` "
         "(ONNX enabled) or set SPANISH_RULE_G2P_CPP to the executable path."
     )
 
