@@ -8,6 +8,12 @@
 
 Weights may be **int8-packed** with `onnx-shrink-ray` (see below); the JSON sidecar is unchanged.
 
+### MeloTTS
+
+**[MeloTTS](https://github.com/myshell-ai/MeloTTS)** (MIT) is a multi-lingual text-to-speech library from [MyShell](https://myshell.ai). Korean is among its supported locales. It works well as a **fast, open-source reference synthesizer** for bootstrapping synthetic speech or style targets when building Piper-style datasets.
+
+The file `ko_KR-melotts-medium.onnx` is **not** the MeloTTS model: it is a **Piper VITS** checkpoint trained (or continued) on MeloTTS-style Korean material and exported for `piper_train` / ONNX Runtime. The `.onnx.json` sidecar holds Piper metadata (`phoneme_id_map`, sample rate, inference scales, etc.).
+
 ### Re-export ONNX from a MeloTTS training checkpoint
 
 Use `training/piper_korean/export_melotts_checkpoint_to_cpp.sh` (writes `cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx` + JSON and refreshes `data/ko/piper-voices` symlinks).
