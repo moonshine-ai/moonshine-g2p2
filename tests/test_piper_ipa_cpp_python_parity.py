@@ -103,3 +103,14 @@ def test_parity_no_coerce_normalize_only():
     finally:
         jf.unlink(missing_ok=True)
     assert py == cpp
+
+
+def test_parity_korean_normalize_only():
+    json_path = _REPO / "data" / "ko" / "piper-voices" / "ko_KR-melotts-medium.onnx.json"
+    if not json_path.is_file():
+        pytest.skip(f"missing {json_path}")
+    keys = load_piper_phoneme_id_map_keys(json_path)
+    ipa_in = "anɲjʌŋhasʰejo"
+    py = ipa_to_piper_ready(ipa_in, piper_lang_key="ko", phoneme_id_map_keys=keys, apply_coercion=False)
+    cpp = _run_cpp(ipa_in, lang="ko", json_path=json_path, coerce=False)
+    assert py == cpp

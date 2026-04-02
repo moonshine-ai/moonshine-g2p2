@@ -49,10 +49,50 @@ void apply_shared_g2p_to_piper_replacements(std::string& s) {
   replace_utf8_all(s, kG2pRhoticStressed, kEspeakRhoticStressed);
 }
 
+void apply_korean_post_normalize_ipa(std::string& s) {
+  // eSpeak-style primary stress on word-initial ``jʌ`` (e.g. 여보세요). UTF-8: j=0x6A, ʌ=U+028C CA 8C, ˈ=U+02C8 CB 88.
+  static const char kJOpen[] = "j\xca\x8c";
+  static const char kJStressOpen[] = "j\xcb\x88\xca\x8c";
+  static const char kSpJOpen[] = " j\xca\x8c";
+  static const char kSpJStressOpen[] = " j\xcb\x88\xca\x8c";
+  if (s.size() >= sizeof(kJOpen) - 1 && s.compare(0, sizeof(kJOpen) - 1, kJOpen) == 0) {
+    s.replace(0, sizeof(kJOpen) - 1, kJStressOpen);
+  }
+  size_t pos = 0;
+  const size_t old_len = sizeof(kSpJOpen) - 1;
+  const size_t new_len = sizeof(kSpJStressOpen) - 1;
+  while ((pos = s.find(kSpJOpen, pos)) != std::string::npos) {
+    s.replace(pos, old_len, kSpJStressOpen);
+    pos += new_len;
+  }
+}
+
 void apply_lang_specific_replacements(std::string& s, std::string_view piper_lang_key) {
-  // Mirror ``piper_ipa_normalization.LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS`` when non-empty.
+  // Mirror ``piper_ipa_normalization.LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS`` (ordered; longest first per language).
+  // Adjacent string literals: avoid ``\x..`` swallowing following hex letters (e.g. ``\xb0a``).
+  static const std::vector<std::pair<std::string, std::string>> kKoG2pToEspeakLike = {
+      {std::string("kams") + "\xca\xb0" + "ahamnida",
+       std::string("\xc9\xa1\xcb\x88\xc9\x90ms\xc9\x90h\xcb\x8c\xc9\x90pnid\xcb\x8c\xc9\x90")},
+      {std::string("has") + "\xca\xb0" + "ejo", std::string("h\xcb\x8c\xc9\x90sej\xcb\x8c") + "o"},
+      {std::string("t\xc9\x9bhanminkuk") + "\xcc\x9a", std::string("d\xc9\x9bh\xcb\x88\xc9\x90nminq\xcb\x8c") + "uq"},
+      {std::string("an\xc9\xb2j\xca\x8c\xc5\x8b"), std::string("\xcb\x88\xc9\x90nnj\xca\x8c\xc5\x8b")},
+      {std::string("s") + "\xca\xb0" + "ejo", std::string("s\xcb\x8c") + "ejo"},
+      {std::string("s") + "\xca\xb0" + "e", std::string("s\xcb\x8c") + "e"},
+      {std::string("s") + "\xca\xb0", "s"},
+  };
   static const std::unordered_map<std::string, std::vector<std::pair<std::string, std::string>>> kLangReplacements{};
-  const std::string key(piper_lang_key);
+  std::string_view eff = piper_lang_key;
+  if (eff == "ko_kr" || eff == "korean") {
+    eff = "ko";
+  }
+  if (eff == "ko") {
+    for (const auto& pr : kKoG2pToEspeakLike) {
+      replace_utf8_all(s, pr.first, pr.second);
+    }
+    apply_korean_post_normalize_ipa(s);
+    return;
+  }
+  const std::string key(eff);
   const auto it = kLangReplacements.find(key);
   if (it == kLangReplacements.end()) {
     return;

@@ -34,6 +34,10 @@ struct MoonshineTTSOptions {
   std::vector<std::string> ort_provider_names{};
 };
 
+/// True when ``MoonshineTTS`` accepts ``lang_cli`` (built-in Kokoro locales plus Spanish rule dialects).
+/// Used by ``moonshine_tts`` CLI to fall back to Piper for other languages.
+bool kokoro_tts_lang_supported(std::string_view lang_cli, const MoonshineG2POptions& g2p_opt = {});
+
 /// Kokoro-82M via ONNX Runtime, with IPA from ``MoonshineG2P`` (same role as ``speak.py`` ONNX path).
 class MoonshineTTS {
  public:

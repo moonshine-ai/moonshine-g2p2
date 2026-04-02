@@ -13,6 +13,7 @@ Example::
     python scripts/shrink_piper_voice_onnx_weights.py
     python scripts/shrink_piper_voice_onnx_weights.py --root cpp/data --dry-run
     python scripts/shrink_piper_voice_onnx_weights.py --backup
+    python scripts/shrink_piper_voice_onnx_weights.py --name-contains melotts
 """
 
 from __future__ import annotations
@@ -118,12 +119,15 @@ def _clamp_onnx_ir_version(onnx_path: Path, *, max_ir: int) -> None:
     onnx.save(model, str(onnx_path))
 
 
-def _collect_onnx_paths(roots: list[Path]) -> list[Path]:
+def _collect_onnx_paths(roots: list[Path], *, name_contains: list[str] | None) -> list[Path]:
     out: list[Path] = []
     for root in roots:
         if not root.is_dir():
             continue
         out.extend(sorted(root.glob("**/piper-voices/*.onnx")))
+    if name_contains:
+        needles = [n.lower() for n in name_contains if n]
+        out = [p for p in out if any(n in p.name.lower() for n in needles)]
     return out
 
 
@@ -145,6 +149,13 @@ def main() -> None:
     ap.add_argument("--shrink-min-elements", type=int, default=16 * 1024)
     ap.add_argument("--shrink-verbose", action="store_true")
     ap.add_argument("--max-onnx-ir", type=int, default=11, help="Clamp model IR version for older ORT.")
+    ap.add_argument(
+        "--name-contains",
+        action="append",
+        default=None,
+        metavar="SUBSTR",
+        help="Only process ONNX files whose basename contains SUBSTR (case-insensitive). Repeatable (OR).",
+    )
     args = ap.parse_args()
 
     roots = args.root
@@ -152,7 +163,7 @@ def main() -> None:
         roots = [_REPO / "cpp" / "data", _REPO / "data"]
     roots = [r.resolve() for r in roots]
 
-    paths = _collect_onnx_paths(roots)
+    paths = _collect_onnx_paths(roots, name_contains=args.name_contains)
     if not paths:
         print("No piper-voices/*.onnx found under given roots.", file=sys.stderr)
         raise SystemExit(1)

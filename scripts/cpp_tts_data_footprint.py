@@ -9,6 +9,8 @@ default ONNX basename from cpp/piper-tts.cpp (see PiperLangRow).
 Spanish routing in resolve_piper_lang compares norm (lowercased) to "es-ES"/"es-AR";
 that mirrors cpp/piper-tts.cpp exactly (may not distinguish es_es vs es_mx for all CLI forms).
 
+Korean Piper default matches ``cpp/piper-tts.cpp``: ``ko_KR-melotts-medium.onnx``.
+
 Usage:
   python scripts/cpp_tts_data_footprint.py
   python scripts/cpp_tts_data_footprint.py --list-tags
@@ -103,6 +105,9 @@ _PIPER_LANG: dict[str, tuple[str, str, str]] = {
     "tr": ("tr-TR", "tr", "tr_TR-dfki-medium.onnx"),
     "uk": ("uk-UA", "uk", "uk_UA-ukrainian_tts-medium.onnx"),
     "vi": ("vi-VN", "vi", "vi_VN-vais1000-medium.onnx"),
+    "ko": ("ko", "ko", "ko_KR-melotts-medium.onnx"),
+    "ko_kr": ("ko", "ko", "ko_KR-melotts-medium.onnx"),
+    "korean": ("ko", "ko", "ko_KR-melotts-medium.onnx"),
 }
 
 
@@ -169,8 +174,8 @@ def uses_kokoro(lang: str) -> bool:
 def resolve_piper_lang(lk: str) -> tuple[str, str, str]:
     """Returns (g2p_dialect, data_subdir, default_onnx). Mirrors cpp/piper-tts.cpp resolve_piper_lang."""
     k = normalize_lang_key(lk)
-    if k in ("ja", "jp", "ko", "ko_kr", "korean"):
-        raise ValueError(f"Piper does not bundle Japanese/Korean ONNX here; use Kokoro for {lk!r}.")
+    if k in ("ja", "jp"):
+        raise ValueError(f"Piper does not bundle Japanese ONNX here; use Kokoro for {lk!r}.")
     norm = normalize_rule_based_dialect_cli_key(lk)
     if norm and dialect_resolves_to_spanish_rules(norm):
         g2p_dialect = norm
@@ -373,7 +378,7 @@ def human_size(n: int) -> str:
 def all_supported_language_tags() -> list[str]:
     s: set[str] = set(_PIPER_LANG.keys()) | set(_LANG_PROFILE.keys()) | set(_SPANISH_CLI_IDS)
     # Common aliases not already keys
-    s.update(["zh", "es", "pt", "ar", "zh_hans"])
+    s.update(["zh", "es", "pt", "ar", "zh_hans", "ko", "ko_kr", "korean"])
     return sorted(s, key=lambda x: (x.lower(), x))
 
 
@@ -508,8 +513,8 @@ def main() -> None:
         for tag in all_supported_language_tags():
             print(f"  {tag}")
         print(
-            "\nNote: moonshine-tts-cli infers ko from Hangul, but MoonshineTTS::resolve_lang_for_tts "
-            "has no Korean LangProfile yet, so full Kokoro TTS for ko is not wired in C++."
+            "\nNote: Korean uses Piper (``ko_KR-melotts-medium.onnx``) when the default engine is Kokoro but "
+            "``kokoro_tts_lang_supported`` is false for ``ko`` (see ``moonshine-tts-cli``)."
         )
         return
 
@@ -528,8 +533,7 @@ def main() -> None:
             for tag, msg in errs:
                 print(f"    {tag!r}: {msg}")
         print(
-            "\nNote: moonshine-tts-cli infers ko from Hangul, but MoonshineTTS::resolve_lang_for_tts "
-            "has no Korean LangProfile yet, so full Kokoro TTS for ko is not wired in C++."
+            "\nNote: Korean uses Piper (``ko_KR-melotts-medium.onnx``) when the CLI falls back from Kokoro."
         )
         if args.create_bundle is not None:
             print(f"\n=== bundle → {args.create_bundle} ===")

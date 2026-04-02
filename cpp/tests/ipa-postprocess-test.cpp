@@ -65,3 +65,17 @@ TEST_CASE("ipa_to_piper_ready without coercion") {
   std::unordered_set<std::string> keys{"h", "ə", "l", "ˈ", "o", "ʊ", " ", "w", "ɜ", "ː", "d"};
   CHECK(ipa_to_piper_ready(hello_world_in, "en_us", keys, false) == hello_world_out);
 }
+
+TEST_CASE("normalize_g2p_ipa_for_piper Korean rule IPA toward eSpeak-ng") {
+  // G2P for 안녕하세요 / 여보세요 (moonshine_g2p --language ko).
+  const std::string annyeong =
+      std::string("an\xc9\xb2j\xca\x8c\xc5\x8bhas") + "\xca\xb0" + "ejo";
+  const std::string annyeong_es =
+      std::string("\xcb\x88\xc9\x90nnj\xca\x8c\xc5\x8bh\xcb\x8c\xc9\x90sej\xcb\x8c") + "o";
+  CHECK(normalize_g2p_ipa_for_piper(annyeong, "ko") == annyeong_es);
+  CHECK(normalize_g2p_ipa_for_piper(annyeong, "ko_kr") == annyeong_es);
+
+  const std::string yeobo = std::string("j\xca\x8c" "bos") + "\xca\xb0" + "ejo";
+  const std::string yeobo_es = std::string("j\xcb\x88\xca\x8c" "bos\xcb\x8c") + "ejo";
+  CHECK(normalize_g2p_ipa_for_piper(yeobo, "ko") == yeobo_es);
+}

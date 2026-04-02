@@ -87,6 +87,9 @@ _PIPER_LANG: dict[str, tuple[str, str]] = {
     "tr": ("tr", "tr_TR-dfki-medium.onnx"),
     "uk": ("uk", "uk_UA-ukrainian_tts-medium.onnx"),
     "vi": ("vi", "vi_VN-vais1000-medium.onnx"),
+    "ko": ("ko", "ko_KR-melotts-medium.onnx"),
+    "ko_kr": ("ko", "ko_KR-melotts-medium.onnx"),
+    "korean": ("ko", "ko_KR-melotts-medium.onnx"),
 }
 
 # (Kokoro pipeline lang code, default voice id, Moonshine G2P label).
@@ -412,10 +415,9 @@ def _resolve_auto_engine(lang: str, kokoro_dir: Path | None, piper_voices_dir: P
 
 def _resolve_piper_lang(user: str) -> tuple[str, str]:
     k = _normalize_lang_key(user)
-    if k in ("ja", "jp", "ko", "ko_kr", "korean"):
+    if k in ("ja", "jp"):
         raise SystemExit(
-            "Piper: Japanese and Korean ONNX voices are not available from rhasspy/piper-voices; "
-            "use --engine kokoro."
+            "Piper: Japanese ONNX voices are not bundled here; use --engine kokoro for Japanese."
         )
     if k not in _PIPER_LANG:
         opts = ", ".join(sorted(set(_PIPER_LANG.keys())))

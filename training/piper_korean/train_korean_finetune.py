@@ -107,7 +107,10 @@ def main() -> None:
         sample_rate=sample_rate,
         phrase_tag="korean_fixed_phrase",
     )
-    ckpt_cb = ModelCheckpoint(every_n_epochs=args.checkpoint_epochs)
+    ckpt_cb = ModelCheckpoint(
+        every_n_epochs=args.checkpoint_epochs,
+        save_last=True,
+    )
 
     if args.base_checkpoint:
         # Avoid Lightning interpreting this as "resume training at epoch N+1"

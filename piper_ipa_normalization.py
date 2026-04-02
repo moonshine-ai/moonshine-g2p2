@@ -4,7 +4,8 @@ Map Moonshine G2P IPA to symbols that appear in Piper ``phoneme_id_map`` JSON (e
 Used after NFC and before building Piper phoneme id sequences. C++ mirrors this module in
 ``moonshine_g2p::utf8_nfc_copy``, ``normalize_g2p_ipa_for_piper``, ``coerce_unknown_ipa_chars_to_piper_inventory``,
 and ``ipa_to_piper_ready`` (``cpp/include/moonshine-g2p/ipa-postprocess.h``); Piper TTS applies the same pipeline
-in ``cpp/piper-tts.cpp``.
+in ``cpp/piper-tts.cpp``. Korean (``ko``) substring rules and post-pass live in ``cpp/src/ipa-postprocess.cpp`` —
+keep them in sync with ``LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS["ko"]`` and ``_korean_post_normalize_ipa``.
 
 Rules are:
 1. Shared replacements (all languages), applied in order.
@@ -30,11 +31,23 @@ SHARED_G2P_TO_PIPER_REPLACEMENTS: list[tuple[str, str]] = [
     ("\u025d", "\u025c\u02d0"),  # ɝ → ɜː
 ]
 
+# Moonshine Korean rule G2P vs eSpeak-ng ``ko`` (Zeroth Piper training target). Longest-first.
+_KO_G2P_TO_ESPEAK_LIKE: list[tuple[str, str]] = [
+    ("kamsʰahamnida", "ɡˈɐmsɐhˌɐpnidˌɐ"),
+    ("hasʰejo", "hˌɐsejˌo"),
+    ("tɛhanminkuk̚", "dɛhˈɐnminqˌuq"),
+    ("anɲjʌŋ", "ˈɐnnjʌŋ"),
+    ("sʰejo", "sˌejo"),
+    ("sʰe", "sˌe"),
+    ("sʰ", "s"),
+]
+
 # Keys are ``speak._PIPER_LANG`` style tags (e.g. ``en_us``, ``de``, ``ar_msa``).
 LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS: dict[str, list[tuple[str, str]]] = {
     # Populated from ``tests/test_wiki_g2p_piper_phoneme_coverage.py`` failures; extend as needed.
     "en_us": [],
     "en_gb": [],
+    "ko": _KO_G2P_TO_ESPEAK_LIKE,
 }
 
 
@@ -56,13 +69,25 @@ def default_piper_onnx_json_path(*, repo_root: Path, piper_data_subdir: str, def
     return repo_root / "data" / piper_data_subdir / "piper-voices" / f"{stem}.onnx.json"
 
 
+def _korean_post_normalize_ipa(s: str) -> str:
+    """eSpeak-style primary stress on word-initial ``jʌ`` (e.g. 여보세요)."""
+    if s.startswith("jʌ"):
+        s = "jˈʌ" + s[2:]
+    return s.replace(" jʌ", " jˈʌ")
+
+
 def normalize_g2p_ipa_for_piper(ipa: str, *, piper_lang_key: str) -> str:
     """Apply shared + language-specific substring replacements (NFC input recommended)."""
     s = unicodedata.normalize("NFC", ipa)
     for old, new in SHARED_G2P_TO_PIPER_REPLACEMENTS:
         s = s.replace(old, new)
-    for old, new in LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS.get(piper_lang_key, []):
+    lang = piper_lang_key
+    if lang in ("ko_kr", "korean"):
+        lang = "ko"
+    for old, new in LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS.get(lang, []):
         s = s.replace(old, new)
+    if lang == "ko":
+        s = _korean_post_normalize_ipa(s)
     return s
 
 

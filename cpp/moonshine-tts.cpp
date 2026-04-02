@@ -159,6 +159,15 @@ void resolve_lang_for_tts(const std::string& lk, const MoonshineG2POptions& opt,
   throw std::runtime_error("MoonshineTTS: unsupported --lang key \"" + lk + "\"");
 }
 
+bool kokoro_tts_lang_supported_inner(std::string_view lang_cli, const MoonshineG2POptions& opt) {
+  const std::string lk = normalize_lang_key(lang_cli);
+  if (lookup_lang_profile(lk) != nullptr) {
+    return true;
+  }
+  const std::string norm = normalize_rule_based_dialect_cli_key(lk);
+  return !norm.empty() && dialect_resolves_to_spanish_rules(norm, opt.spanish_narrow_obstruents);
+}
+
 bool voice_prefix_ok(char kokoro_lang, std::string_view voice) {
   static const std::unordered_map<char, std::vector<std::string_view>> pref{
       {'a', {"af_", "am_"}}, {'b', {"bf_", "bm_"}}, {'e', {"ef_", "em_"}}, {'f', {"ff_"}},
@@ -352,6 +361,10 @@ Ort::SessionOptions make_ort_options(const std::vector<std::string>& names) {
 }
 
 }  // namespace
+
+bool kokoro_tts_lang_supported(std::string_view lang_cli, const MoonshineG2POptions& g2p_opt) {
+  return kokoro_tts_lang_supported_inner(lang_cli, g2p_opt);
+}
 
 struct MoonshineTTS::Impl {
   std::filesystem::path kokoro_dir_;

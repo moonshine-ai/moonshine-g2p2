@@ -25,7 +25,8 @@ void usage(const char* argv0) {
       << "  Custom layouts: use ``MoonshineTTS`` / ``PiperTTS`` from C++ with ``use_bundled_cpp_g2p_data = false``.\n"
       << "  Export Kokoro voices: python scripts/export_kokoro_voice_for_cpp.py --voices-dir voices/\n"
       << "  Piper voices: python scripts/download_piper_voices_for_g2p.py (copy/sync to cpp/data/*/piper-voices).\n"
-      << "  --lang: en_us, es, es_mx, es-AR, …, fr, ja, zh (Spanish regions: any Moonshine Spanish id)\n"
+      << "  --lang: Default engine Kokoro supports en_us, es, …, fr, ja, zh (and Spanish dialect ids); other "
+         "tags use Piper when ``--engine`` is omitted or ``kokoro``.\n"
       << "  --voice: Kokoro voice id (e.g. af_heart) or Piper ONNX stem/basename.\n"
       << "  Default output: out.wav. Default text if none: \"Hello world\".\n";
 }
@@ -58,6 +59,8 @@ std::optional<std::string> infer_lang_from_text_utf8(const std::string& text) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  using moonshine_g2p::kokoro_tts_lang_supported;
+  using moonshine_g2p::MoonshineG2POptions;
   using moonshine_g2p::MoonshineTTS;
   using moonshine_g2p::MoonshineTTSOptions;
   using moonshine_g2p::PiperTTS;
@@ -133,6 +136,16 @@ int main(int argc, char** argv) {
       lang = *inferred;
       std::cerr << "moonshine_tts: inferred --lang " << lang << " from input text "
                    "(set --lang explicitly to override).\n";
+    }
+  }
+
+  if (engine == "kokoro") {
+    MoonshineG2POptions g2p_for_lang;
+    if (!model_root.empty()) {
+      g2p_for_lang.model_root = model_root;
+    }
+    if (!kokoro_tts_lang_supported(lang, g2p_for_lang)) {
+      engine = "piper";
     }
   }
 

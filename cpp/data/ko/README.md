@@ -4,6 +4,23 @@
 
 - **`dict.tsv`** — Hangul word → IPA (broad Seoul-style inventory after normalization), used by C++ `KoreanRuleG2p` (lexicon + internal Hangul rule pipeline).
 
+- **`piper-voices/ko_KR-melotts-medium.onnx`** (+ **`.onnx.json`**) — Piper VITS (22.05 kHz, medium) trained on MeloTTS-style synthetic Korean. Used by C++ `PiperTTS` (`--lang ko`), `moonshine_tts` (Piper fallback), and `speak.py --engine piper --lang ko`. Repo root symlinks `data/ko/piper-voices/ko_KR-melotts-medium.onnx*` point here.
+
+Weights may be **int8-packed** with `onnx-shrink-ray` (see below); the JSON sidecar is unchanged.
+
+### Re-export ONNX from a MeloTTS training checkpoint
+
+Use `training/piper_korean/export_melotts_checkpoint_to_cpp.sh` (writes `cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx` + JSON and refreshes `data/ko/piper-voices` symlinks).
+
+### Optional: int8 weight packing (`onnx-shrink-ray`)
+
+After export (or to re-pack an FP32 checkout):
+
+```bash
+pip install onnx onnx-shrink-ray onnx-graphsurgeon
+python scripts/shrink_piper_voice_onnx_weights.py --root cpp/data --name-contains melotts
+```
+
 ## Provenance
 
 | Asset | Source |

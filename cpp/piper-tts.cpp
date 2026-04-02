@@ -93,6 +93,9 @@ const PiperLangRow* lookup_piper_lang_row(std::string_view k) {
       {"tr", {"tr-TR", "tr", "tr_TR-dfki-medium.onnx"}},
       {"uk", {"uk-UA", "uk", "uk_UA-ukrainian_tts-medium.onnx"}},
       {"vi", {"vi-VN", "vi", "vi_VN-vais1000-medium.onnx"}},
+      {"ko", {"ko", "ko", "ko_KR-melotts-medium.onnx"}},
+      {"ko_kr", {"ko", "ko", "ko_KR-melotts-medium.onnx"}},
+      {"korean", {"ko", "ko", "ko_KR-melotts-medium.onnx"}},
   };
   const std::string key(k);
   const auto it = m.find(key);
@@ -118,9 +121,9 @@ std::string piper_ipa_norm_lang_key(const std::string& lk, std::string_view data
 void resolve_piper_lang(const std::string& lk, const MoonshineG2POptions& opt, std::string& g2p_dialect,
                         std::string& data_subdir, std::string& default_onnx) {
   const std::string k = normalize_lang_key(lk);
-  if (k == "ja" || k == "jp" || k == "ko" || k == "ko_kr" || k == "korean") {
+  if (k == "ja" || k == "jp") {
     throw std::runtime_error(
-        "PiperTTS: Japanese and Korean are not available as Piper ONNX bundles here; use MoonshineTTS (Kokoro).");
+        "PiperTTS: Japanese is not available as a Piper ONNX bundle here; use MoonshineTTS (Kokoro).");
   }
   const std::string norm = normalize_rule_based_dialect_cli_key(lk);
   if (!norm.empty() && dialect_resolves_to_spanish_rules(norm, opt.spanish_narrow_obstruents)) {
@@ -497,6 +500,9 @@ struct PiperTTS::Impl {
     const std::string ipa_for_piper =
         coerce_unknown_ipa_chars_to_piper_inventory(
             normalize_g2p_ipa_for_piper(trimmed_ipa, piper_ipa_lang_key_), phoneme_map_keys_, true);
+    if (trim_ascii_ws_copy(ipa_for_piper).empty()) {
+      throw std::runtime_error("PiperTTS: empty phoneme string after G2P normalization");
+    }
     std::vector<int64_t> ids = ipa_utf8_to_piper_ids(ipa_for_piper, phoneme_id_map_);
     if (ids.size() < 3) {
       throw std::runtime_error("PiperTTS: no phoneme ids after IPA map filter");
