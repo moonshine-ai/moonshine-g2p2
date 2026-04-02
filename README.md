@@ -20,9 +20,11 @@ mkdir -p build
 cd build
 cmake ..
 cmake --build .
-./moonshine_g2p --model-root ../models --language en_us "Live, laugh, love"
-./moonshine_g2p --model-root ../models --language ja "東京に行きます。"
+./moonshine_g2p --model-root ../../models --language en_us "Live, laugh, love"
+./moonshine_g2p --model-root ../../models --language ja "東京に行きます。"
 ```
+
+The `--model-root ../../models` paths reach the **parent** monorepo’s `models/` directory from `moonshine-tts/build`. In a standalone clone of [moonshine-tts](https://github.com/moonshine-ai/moonshine-tts), point `--model-root` at your own ONNX layout (or rely on bundled `data/` via the C++ defaults).
 
 ## C++ bundled data (`moonshine-tts/data/`)
 
