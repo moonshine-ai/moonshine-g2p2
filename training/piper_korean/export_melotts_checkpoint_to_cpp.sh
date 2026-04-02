@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Export a MeloTTS-trained Korean Lightning .ckpt to cpp/data/ko/piper-voices (ONNX + JSON)
+# Export a MeloTTS-trained Korean Lightning .ckpt to moonshine-tts/data/ko/piper-voices (ONNX + JSON)
 # and symlink into data/ko/piper-voices for Python/tests.
 #
 # Usage:
@@ -11,8 +11,8 @@ REPO="$(cd "$ROOT/../.." && pwd)"
 PREP="$ROOT/work/prepared_melotts_22050"
 CKPT="${1:-}"
 CFG="${2:-$PREP/config.json}"
-OUT_ONNX="$REPO/cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx"
-OUT_JSON="$REPO/cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx.json"
+OUT_ONNX="$REPO/moonshine-tts/data/ko/piper-voices/ko_KR-melotts-medium.onnx"
+OUT_JSON="$REPO/moonshine-tts/data/ko/piper-voices/ko_KR-melotts-medium.onnx.json"
 DATA_VOICES="$REPO/data/ko/piper-voices"
 PYTHON="${PYTHON:-python3}"
 
@@ -65,9 +65,9 @@ Path("$OUT_JSON").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n
 print("Wrote", "$OUT_JSON")
 PY
 
-ln -sf "../../../cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx" \
+ln -sf "../../../moonshine-tts/data/ko/piper-voices/ko_KR-melotts-medium.onnx" \
   "$DATA_VOICES/ko_KR-melotts-medium.onnx"
-ln -sf "../../../cpp/data/ko/piper-voices/ko_KR-melotts-medium.onnx.json" \
+ln -sf "../../../moonshine-tts/data/ko/piper-voices/ko_KR-melotts-medium.onnx.json" \
   "$DATA_VOICES/ko_KR-melotts-medium.onnx.json"
 echo "Symlinked into $DATA_VOICES"
 echo "Done: $OUT_ONNX"

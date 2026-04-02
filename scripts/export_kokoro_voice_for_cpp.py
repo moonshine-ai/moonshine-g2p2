@@ -10,7 +10,7 @@ The C++ runtime does not load PyTorch pickles. After downloading the Kokoro bund
 Convert every voice in a directory (same layout as Hugging Face / download script)::
 
     python scripts/export_kokoro_voice_for_cpp.py --voices-dir models/kokoro/voices
-    python scripts/export_kokoro_voice_for_cpp.py --voices-dir cpp/data/kokoro/voices
+    python scripts/export_kokoro_voice_for_cpp.py --voices-dir moonshine-tts/data/kokoro/voices
 """
 
 from __future__ import annotations

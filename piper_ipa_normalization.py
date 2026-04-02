@@ -3,8 +3,8 @@ Map Moonshine G2P IPA to symbols that appear in Piper ``phoneme_id_map`` JSON (e
 
 Used after NFC and before building Piper phoneme id sequences. C++ mirrors this module in
 ``moonshine_g2p::utf8_nfc_copy``, ``normalize_g2p_ipa_for_piper``, ``coerce_unknown_ipa_chars_to_piper_inventory``,
-and ``ipa_to_piper_ready`` (``cpp/include/moonshine-g2p/ipa-postprocess.h``); Piper TTS applies the same pipeline
-in ``cpp/piper-tts.cpp``. Korean (``ko``) substring rules and post-pass live in ``cpp/src/ipa-postprocess.cpp`` —
+and ``ipa_to_piper_ready`` (``moonshine-tts/include/moonshine-g2p/ipa-postprocess.h``); Piper TTS applies the same pipeline
+in ``moonshine-tts/piper-tts.cpp``. Korean (``ko``) substring rules and post-pass live in ``moonshine-tts/src/ipa-postprocess.cpp`` —
 keep them in sync with ``LANG_SPECIFIC_G2P_TO_PIPER_REPLACEMENTS["ko"]`` and ``_korean_post_normalize_ipa``.
 
 Rules are:

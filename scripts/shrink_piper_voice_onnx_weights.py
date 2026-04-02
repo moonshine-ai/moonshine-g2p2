@@ -3,7 +3,7 @@
 Pack large FP32 initializers in Piper voice ONNX files using onnx-shrink-ray (int8 storage +
 Cast/Mul/Add dequant), matching ``export_arabic_msa_diacritizer_onnx.py`` / ``download_kokoro_onnx.py``.
 
-Default targets: ``cpp/data/**/piper-voices/*.onnx`` and ``data/**/piper-voices/*.onnx`` (two copies
+Default targets: ``moonshine-tts/data/**/piper-voices/*.onnx`` and ``data/**/piper-voices/*.onnx`` (two copies
 in this repo). Files that already look int8-packed are skipped.
 
 Requires: ``pip install onnx onnx-shrink-ray onnx-graphsurgeon``
@@ -11,7 +11,7 @@ Requires: ``pip install onnx onnx-shrink-ray onnx-graphsurgeon``
 Example::
 
     python scripts/shrink_piper_voice_onnx_weights.py
-    python scripts/shrink_piper_voice_onnx_weights.py --root cpp/data --dry-run
+    python scripts/shrink_piper_voice_onnx_weights.py --root moonshine-tts/data --dry-run
     python scripts/shrink_piper_voice_onnx_weights.py --backup
     python scripts/shrink_piper_voice_onnx_weights.py --name-contains melotts
 """
@@ -138,7 +138,7 @@ def main() -> None:
         type=Path,
         action="append",
         default=None,
-        help="Directory to scan (repeatable). Default: cpp/data and data under repo root.",
+        help="Directory to scan (repeatable). Default: moonshine-tts/data and data under repo root.",
     )
     ap.add_argument("--dry-run", action="store_true", help="List files only; do not modify.")
     ap.add_argument(
@@ -160,7 +160,7 @@ def main() -> None:
 
     roots = args.root
     if not roots:
-        roots = [_REPO / "cpp" / "data", _REPO / "data"]
+        roots = [_REPO / "moonshine-tts" / "data", _REPO / "data"]
     roots = [r.resolve() for r in roots]
 
     paths = _collect_onnx_paths(roots, name_contains=args.name_contains)

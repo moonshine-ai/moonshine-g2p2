@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare ``dutch_rule_g2p.text_to_ipa`` (Python) vs ``dutch_g2p_batch`` (C++) line-by-line.
 
-Example (from repo root, after building ``cpp/build-core/dutch_g2p_batch``)::
+Example (from repo root, after building ``moonshine-tts/build-core/dutch_g2p_batch``)::
 
     ./scripts/compare_dutch_py_cpp_wikitext.py --lines 10
 """
@@ -32,7 +32,7 @@ def main() -> int:
     p.add_argument(
         "--batch",
         type=Path,
-        default=_REPO / "cpp" / "build-core" / "dutch_g2p_batch",
+        default=_REPO / "moonshine-tts" / "build-core" / "dutch_g2p_batch",
         help="Path to dutch_g2p_batch executable",
     )
     p.add_argument("--dict", type=Path, default=_REPO / "data" / "nl" / "dict.tsv")

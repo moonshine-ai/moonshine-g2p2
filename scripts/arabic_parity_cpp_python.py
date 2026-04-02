@@ -6,7 +6,7 @@ lines of ``data/ar/wiki-text.txt``.
 Usage (from repo root)::
 
     python3 scripts/arabic_parity_cpp_python.py --lines 100 \\
-        --cpp cpp/build/arabic_rule_g2p --onnx-dir data/ar_msa/arabertv02_tashkeel_fadel_onnx
+        --cpp moonshine-tts/build/arabic_rule_g2p --onnx-dir data/ar_msa/arabertv02_tashkeel_fadel_onnx
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def main() -> None:
     ap.add_argument(
         "--cpp",
         type=Path,
-        default=_REPO / "cpp" / "build" / "arabic_rule_g2p",
+        default=_REPO / "moonshine-tts" / "build" / "arabic_rule_g2p",
         help="Path to arabic_rule_g2p executable",
     )
     ap.add_argument("--dict", type=Path, default=_REPO / "data" / "ar_msa" / "dict.tsv")
@@ -42,7 +42,7 @@ def main() -> None:
     args = ap.parse_args()
 
     if not args.cpp.is_file():
-        print(f"Missing C++ binary: {args.cpp} (build with cmake --build cpp/build)", file=sys.stderr)
+        print(f"Missing C++ binary: {args.cpp} (build with cmake --build moonshine-tts/build)", file=sys.stderr)
         sys.exit(2)
     if not args.wiki.is_file():
         print(f"Missing wiki: {args.wiki}", file=sys.stderr)

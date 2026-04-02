@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Compare ``french_g2p.text_to_ipa`` (Python) vs ``french_g2p_batch`` (C++ core) line-by-line.
 
-Example (from repo root, after building ``cpp/build-core/french_g2p_batch``)::
+Example (from repo root, after building ``moonshine-tts/build-core/french_g2p_batch``)::
 
     ./scripts/compare_french_py_cpp_wikitext.py --lines 100
 """
@@ -32,7 +32,7 @@ def main() -> int:
     p.add_argument(
         "--batch",
         type=Path,
-        default=_REPO / "cpp" / "build-core" / "french_g2p_batch",
+        default=_REPO / "moonshine-tts" / "build-core" / "french_g2p_batch",
         help="Path to french_g2p_batch executable",
     )
     p.add_argument("--dict", type=Path, default=_REPO / "data" / "fr" / "dict.tsv")

@@ -33,7 +33,7 @@ class TestSpeakPiperOrtParity(unittest.TestCase):
     def setUp(self) -> None:
         if not self.onnx_path.is_file():
             self.skipTest(
-                "English Piper ONNX missing (run scripts/download_piper_voices_for_g2p.py or sync cpp/data)"
+                "English Piper ONNX missing (run scripts/download_piper_voices_for_g2p.py or sync moonshine-tts/data)"
             )
 
     def test_phoneme_ids_raw_audio_matches_piper_voice_cpu(self) -> None:

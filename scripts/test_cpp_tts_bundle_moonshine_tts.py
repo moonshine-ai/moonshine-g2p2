@@ -7,11 +7,11 @@ For each supported TTS language tag from ``cpp_tts_data_footprint``:
 2. Run ``moonshine_tts`` with ``--model-root`` pointing at that directory so G2P + Kokoro/Piper
    resolve assets only from the bundle.
 
-Requires a built ``cpp/build/moonshine_tts`` (see ``cpp/data/kokoro/README.md``).
+Requires a built ``moonshine-tts/build/moonshine_tts`` (see ``moonshine-tts/data/kokoro/README.md``).
 
 Example::
 
-    cmake --build cpp/build --target moonshine_tts
+    cmake --build moonshine-tts/build --target moonshine_tts
     python scripts/test_cpp_tts_bundle_moonshine_tts.py
     python scripts/test_cpp_tts_bundle_moonshine_tts.py --only en_us de ja
 """
@@ -78,13 +78,13 @@ def main() -> None:
     ap.add_argument(
         "--moonshine-tts",
         type=Path,
-        default=_REPO / "cpp" / "build" / "moonshine_tts",
+        default=_REPO / "moonshine-tts" / "build" / "moonshine_tts",
         help="Path to moonshine_tts executable",
     )
     ap.add_argument(
         "--data-root",
         type=Path,
-        default=_REPO / "cpp" / "data",
+        default=_REPO / "moonshine-tts" / "data",
         help="Source tree (same as cpp_tts_data_footprint --data-root)",
     )
     ap.add_argument(
@@ -103,7 +103,7 @@ def main() -> None:
 
     exe = args.moonshine_tts.resolve()
     if not exe.is_file():
-        raise SystemExit(f"missing moonshine_tts binary: {exe} (build with cmake --build cpp/build --target moonshine_tts)")
+        raise SystemExit(f"missing moonshine_tts binary: {exe} (build with cmake --build moonshine-tts/build --target moonshine_tts)")
 
     cpp_data = args.data_root.resolve()
     tags = args.only if args.only is not None else ctf.all_supported_language_tags()

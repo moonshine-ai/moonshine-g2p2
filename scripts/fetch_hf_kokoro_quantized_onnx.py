@@ -7,7 +7,7 @@ The community ONNX uses input name ``style`` and ``speed`` as float32 ``[1]``; t
 ``ref_s`` and (depending on export) ``speed`` as double scalar or float ``[1]``. This script:
 
 1. Renames the graph input ``style`` → ``ref_s`` (and the single consumer edge).
-2. Writes to ``--out`` (default: ``cpp/data/kokoro/model.onnx``).
+2. Writes to ``--out`` (default: ``moonshine-tts/data/kokoro/model.onnx``).
 
 C++ ``moonshine-tts.cpp`` detects ``speed`` element type at runtime (float vs double).
 
@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 _REPO = Path(__file__).resolve().parents[1]
-_DEFAULT_OUT = _REPO / "cpp" / "data" / "kokoro" / "model.onnx"
+_DEFAULT_OUT = _REPO / "moonshine-tts" / "data" / "kokoro" / "model.onnx"
 _HF_REPO = "onnx-community/Kokoro-82M-ONNX"
 _HF_FILE = "onnx/model_quantized.onnx"
 

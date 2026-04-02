@@ -1,6 +1,6 @@
 """C++ ``PiperTTS`` / ``piper_phoneme_infer`` vs ``speak.py`` ONNX Runtime path (same phoneme ids).
 
-Requires a built ``cpp/build/piper_phoneme_infer``, ``piper-tts``, ``onnxruntime``, ``soundfile``,
+Requires a built ``moonshine-tts/build/piper_phoneme_infer``, ``piper-tts``, ``onnxruntime``, ``soundfile``,
 and ``data/en_us/piper-voices/en_US-lessac-medium.onnx``.
 
 End-to-end text differs (Moonshine G2P vs eSpeak); this test locks parity on the shared ORT +
@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 
 _REPO = Path(__file__).resolve().parents[1]
-_CPP_BIN = _REPO / "cpp" / "build" / "piper_phoneme_infer"
+_CPP_BIN = _REPO / "moonshine-tts" / "build" / "piper_phoneme_infer"
 _ONNX = _REPO / "data" / "en_us" / "piper-voices" / "en_US-lessac-medium.onnx"
 
 
@@ -101,7 +101,7 @@ class TestCppPiperOrtParity(unittest.TestCase):
         if not _ONNX.is_file():
             self.skipTest("English Piper ONNX missing")
         if not _CPP_BIN.is_file():
-            self.skipTest("piper_phoneme_infer not built (cmake --build cpp/build --target piper_phoneme_infer)")
+            self.skipTest("piper_phoneme_infer not built (cmake --build moonshine-tts/build --target piper_phoneme_infer)")
 
     def test_cpp_matches_python_ort_for_piper_phoneme_ids(self) -> None:
         speak_mod = _try_speak()

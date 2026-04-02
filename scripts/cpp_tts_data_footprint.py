@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-List cpp/data files needed for C++ TTS (MoonshineTTS/Kokoro vs Piper) per language.
+List moonshine-tts/data files needed for C++ TTS (MoonshineTTS/Kokoro vs Piper) per language.
 
 Engine choice matches speak.py / product intent: Kokoro when the locale is in the C++
 MoonshineTTS LangProfile table or resolves to Spanish rules; otherwise Piper with the
@@ -31,7 +31,7 @@ from collections.abc import Iterable
 
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_DEFAULT_CPP_DATA = _REPO_ROOT / "cpp" / "data"
+_DEFAULT_CPP_DATA = _REPO_ROOT / "moonshine-tts" / "data"
 
 # cpp/moonshine-tts.cpp lookup_lang_profile keys -> default_voice (third field is G2P dialect tag).
 _LANG_PROFILE: dict[str, tuple[str, str]] = {
@@ -261,7 +261,7 @@ def _french_g2p_files(root: Path) -> list[Path]:
 
 def g2p_cpp_data_files_for_moonshine_dialect(model_root: Path, g2p_dialect: str) -> list[Path]:
     """
-    Files under cpp/data used by MoonshineG2P for the given dialect string
+    Files under moonshine-tts/data used by MoonshineG2P for the given dialect string
     (as passed from MoonshineTTS / Piper after resolution).
     """
     norm = normalize_rule_based_dialect_cli_key(g2p_dialect)
@@ -343,7 +343,7 @@ def resolve_kokoro_g2p_dialect(lang: str) -> str:
 
 
 def required_paths_for_lang(lang: str, *, cpp_data: Path) -> tuple[str, list[Path]]:
-    """Returns (engine_label, sorted unique paths under cpp/data)."""
+    """Returns (engine_label, sorted unique paths under moonshine-tts/data)."""
     model_root = cpp_data.resolve()
     kokoro_dir = model_root / "kokoro"
     if uses_kokoro(lang):
@@ -470,7 +470,7 @@ def print_path_set_lines(
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description="cpp/data footprint for C++ TTS (Kokoro vs Piper).")
+    ap = argparse.ArgumentParser(description="moonshine-tts/data footprint for C++ TTS (Kokoro vs Piper).")
     ap.add_argument(
         "langs",
         nargs="*",
@@ -485,7 +485,7 @@ def main() -> None:
         "--data-root",
         type=Path,
         default=_DEFAULT_CPP_DATA,
-        help=f"Override cpp data root (default: {_DEFAULT_CPP_DATA})",
+        help=f"Override bundled C++ data root (default: {_DEFAULT_CPP_DATA})",
     )
     ap.add_argument(
         "--sort-by-largest",
@@ -522,7 +522,7 @@ def main() -> None:
         tags = all_supported_language_tags()
         path_map, errs = collect_paths_for_tags(tags, cpp_data=cpp_data)
         print(
-            f"Combined cpp/data footprint for all {len(tags)} supported language/dialect tags "
+            f"Combined moonshine-tts/data footprint for all {len(tags)} supported language/dialect tags "
             "(union of C++ Piper + Moonshine/Kokoro + Spanish CLI ids)."
         )
         print(f"\n=== {len(path_map)} unique files ===")

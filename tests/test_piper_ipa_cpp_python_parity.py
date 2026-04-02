@@ -1,7 +1,7 @@
 """
 Parity: ``piper_ipa_normalization`` (Python) vs ``ipa-postprocess.cpp`` via ``piper_ipa_normalize_cli``.
 
-Set ``MOONSHINE_G2P_PIPER_IPA_CLI`` to the built binary if it is not at ``cpp/build/piper_ipa_normalize_cli``.
+Set ``MOONSHINE_G2P_PIPER_IPA_CLI`` to the built binary if it is not at ``moonshine-tts/build/piper_ipa_normalize_cli``.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def _cli_exe() -> Path:
     env = os.environ.get("MOONSHINE_G2P_PIPER_IPA_CLI", "").strip()
     if env:
         return Path(env)
-    return _REPO / "cpp" / "build" / "piper_ipa_normalize_cli"
+    return _REPO / "moonshine-tts" / "build" / "piper_ipa_normalize_cli"
 
 
 def _run_cpp(ipa: str, *, lang: str, json_path: Path, coerce: bool) -> str:

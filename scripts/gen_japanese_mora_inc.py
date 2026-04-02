@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate ``cpp/src/japanese-mora-data.inc`` from :mod:`japanese_kana_to_ipa` (single source of truth)."""
+"""Regenerate ``moonshine-tts/src/japanese-mora-data.inc`` from :mod:`japanese_kana_to_ipa` (single source of truth)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ import japanese_kana_to_ipa as j  # noqa: E402
 
 
 def main() -> None:
-    out_path = _REPO / "cpp" / "src" / "japanese-mora-data.inc"
+    out_path = _REPO / "moonshine-tts" / "src" / "japanese-mora-data.inc"
     m = j._MORA
     items = sorted(m.items(), key=lambda kv: len(kv[0].encode("utf-8")), reverse=True)
     lines = [

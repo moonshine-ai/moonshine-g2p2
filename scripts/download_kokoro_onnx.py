@@ -19,7 +19,7 @@ but on Kokoro it still **breaks the built-in PyTorch vs ONNX waveform parity che
 from ~0.997 to ~0.1 in ``--verify``). Default export stays **FP32**. Use only if you accept the risk
 and validate audio yourself::
 
-    python scripts/download_kokoro_onnx.py --out-dir cpp/data/kokoro --only-shrink
+    python scripts/download_kokoro_onnx.py --out-dir moonshine-tts/data/kokoro --only-shrink
 
 ``--only-shrink`` re-packs an existing ``model.onnx`` (same caveat). After a fresh export, add
 ``--shrink-weights`` to pack weights in the same pass.
@@ -28,10 +28,10 @@ Example::
 
     python scripts/download_kokoro_onnx.py --out-dir models/kokoro --verify
 
-To match the C++ default bundle path, copy (or symlink) into ``cpp/data/kokoro``::
+To match the C++ default bundle path, copy (or symlink) into ``moonshine-tts/data/kokoro``::
 
     cp -a models/kokoro/config.json models/kokoro/model.onnx models/kokoro/voices \\
-        cpp/data/kokoro/
+        moonshine-tts/data/kokoro/
     # voices/ should contain ``*.kokorovoice`` (see ``export_kokoro_voice_for_cpp.py``).
 
 Dependencies::

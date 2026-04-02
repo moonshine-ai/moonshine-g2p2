@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Regenerate Unicode helper tables in cpp/src/lang-specific/spanish-unicode-tables.cpp."""
+"""Regenerate Unicode helper tables in moonshine-tts/src/lang-specific/spanish-unicode-tables.cpp."""
 from __future__ import annotations
 
 import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_DIR = ROOT / "cpp" / "src" / "lang-specific"
+OUT_DIR = ROOT / "moonshine-tts" / "src" / "lang-specific"
 CPP_PATH = OUT_DIR / "spanish-unicode-tables.cpp"
 
 

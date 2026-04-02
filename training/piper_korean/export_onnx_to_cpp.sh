@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Export a Zeroth-prepared Lightning .ckpt to ONNX + voice JSON (default: work dir, not cpp/data).
-# The bundled repo voice under cpp/data is MeloTTS (`ko_KR-melotts-medium`); use
+# Export a Zeroth-prepared Lightning .ckpt to ONNX + voice JSON (default: work dir, not moonshine-tts/data).
+# The bundled repo voice under moonshine-tts/data is MeloTTS (`ko_KR-melotts-medium`); use
 # export_melotts_checkpoint_to_cpp.sh to refresh that. This script remains for Zeroth/LJS pipelines.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,4 +33,4 @@ Path("$OUT_JSON").write_text(json.dumps(cfg, ensure_ascii=False, indent=2) + "\n
 print("Wrote", "$OUT_JSON")
 PY
 echo "Done: $OUT_ONNX"
-echo "Copy into cpp/data/ko/piper-voices/ only if you intend to ship this checkpoint."
+echo "Copy into moonshine-tts/data/ko/piper-voices/ only if you intend to ship this checkpoint."
